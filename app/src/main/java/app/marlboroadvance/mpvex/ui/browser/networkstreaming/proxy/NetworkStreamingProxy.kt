@@ -624,75 +624,93 @@ class NetworkStreamingProxy private constructor() : NanoHTTPD("127.0.0.1", 0) {
   /**
    * Get WebDAV stream with offset using HTTP Range header (efficient seeking)
    */
-  private suspend fun getStreamWithOffsetWebDAV(streamInfo: StreamInfo, offset: Long): InputStream? {
-    try {
-      val protocol = if (streamInfo.connection.port == 443) "https" else "http"
-      val cleanBasePath = streamInfo.connection.path.trimEnd('/')
-      val cleanFilePath = if (streamInfo.filePath.startsWith("/")) streamInfo.filePath else "/${streamInfo.filePath}"
-      val url = "$protocol://${streamInfo.connection.host}:${streamInfo.connection.port}$cleanBasePath$cleanFilePath"
+private suspend fun getStreamWithOffsetWebDAV(streamInfo: StreamInfo, offset: Long): InputStream? {
+  try {
+    val webDavClient = streamInfo.client as app.marlboroadvance.mpvex.ui.browser.networkstreaming.clients.WebDavClient
+    
+    // Asegúrate de que esté conectado
+    if (!webDavClient.isConnected()) {
+      webDavClient.connect().getOrThrow()
+    }
+    
+    // Construye la URL correctamente usando el método del cliente
+    val url = webDavClient.buildFullUrl(streamInfo.filePath)
+    
+    Log.d(TAG, "WebDAV getStreamWithOffset:")
+    Log.d(TAG, "  filePath: ${streamInfo.filePath}")
+    Log.d(TAG, "  url: $url")
+    Log.d(TAG, "  offset: $offset")
 
-      // Use OkHttp directly to add Range header support
-      val okHttpClient = okhttp3.OkHttpClient.Builder()
-        .addInterceptor { chain ->
-          val request = chain.request().newBuilder()
-            .addHeader("Range", "bytes=$offset-")
-            .build()
-          chain.proceed(request)
-        }
-        .build()
-
-      // Build the request
-      val requestBuilder = okhttp3.Request.Builder()
-        .url(url)
-        .get()
-
-      // Add auth if needed
-      if (!streamInfo.connection.isAnonymous) {
-        val credentials = okhttp3.Credentials.basic(streamInfo.connection.username, streamInfo.connection.password)
-        requestBuilder.addHeader("Authorization", credentials)
+    // Use OkHttp directly to add Range header support
+    val okHttpClient = okhttp3.OkHttpClient.Builder()
+      .addInterceptor { chain ->
+        val request = chain.request().newBuilder()
+          .addHeader("Range", "bytes=$offset-")
+          .build()
+        chain.proceed(request)
       }
+      .build()
 
-      val request = requestBuilder.build()
-      val response = okHttpClient.newCall(request).execute()
+    // Build the request
+    val requestBuilder = okhttp3.Request.Builder()
+      .url(url)
+      .get()
 
-      if (!response.isSuccessful && response.code != 206) {
-        response.close()
-        return null
-      }
+    // Add auth if needed
+    if (!streamInfo.connection.isAnonymous) {
+      val credentials = okhttp3.Credentials.basic(
+        streamInfo.connection.username, 
+        streamInfo.connection.password
+      )
+      requestBuilder.addHeader("Authorization", credentials)
+    }
 
-      val rawStream = response.body?.byteStream()
-      if (rawStream == null) {
-        response.close()
-        return null
-      }
+    val request = requestBuilder.build()
+    val response = okHttpClient.newCall(request).execute()
 
-      // Wrap stream to handle cleanup
-      val wrappedStream = object : java.io.InputStream() {
-        override fun read(): Int = rawStream.read()
-        override fun read(b: ByteArray): Int = rawStream.read(b)
-        override fun read(b: ByteArray, off: Int, len: Int): Int = rawStream.read(b, off, len)
-        override fun available(): Int = rawStream.available()
+    Log.d(TAG, "  Response code: ${response.code}")
 
-        override fun close() {
-          try {
-            rawStream.close()
-          } catch (e: Exception) {
-            // Ignore
-          }
-          try {
-            response.close()
-          } catch (e: Exception) {
-            // Ignore
-          }
-        }
-      }
-
-      return wrappedStream
-
-    } catch (e: Exception) {
+    if (!response.isSuccessful && response.code != 206) {
+      Log.e(TAG, "  Failed: ${response.message}")
+      response.close()
       return null
     }
+
+    val rawStream = response.body?.byteStream()
+    if (rawStream == null) {
+      response.close()
+      return null
+    }
+
+    // Wrap stream to handle cleanup
+    val wrappedStream = object : java.io.InputStream() {
+      override fun read(): Int = rawStream.read()
+      override fun read(b: ByteArray): Int = rawStream.read(b)
+      override fun read(b: ByteArray, off: Int, len: Int): Int = rawStream.read(b, off, len)
+      override fun available(): Int = rawStream.available()
+
+      override fun close() {
+        try {
+          rawStream.close()
+        } catch (e: Exception) {
+          // Ignore
+        }
+        try {
+          response.close()
+        } catch (e: Exception) {
+          // Ignore
+        }
+      }
+    }
+
+    Log.d(TAG, "  Stream created successfully")
+    return wrappedStream
+
+  } catch (e: Exception) {
+    Log.e(TAG, "WebDAV getStreamWithOffset error: ${e.message}", e)
+    return null
   }
+}
 
   /**
    * Get SMB stream with offset using SMBJ (efficient seeking)
