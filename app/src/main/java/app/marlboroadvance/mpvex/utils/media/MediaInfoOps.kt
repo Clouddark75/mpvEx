@@ -2,14 +2,42 @@ package app.marlboroadvance.mpvex.utils.media
 
 import android.content.Context
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.mediaarea.mediainfo.lib.MediaInfo
+import java.io.File
 
 object MediaInfoOps {
-  /**
-   * Extract detailed media information from a video file
-   */
+
+  // =========================
+  // URI handling (FIX)
+  // =========================
+
+  private fun openPfd(context: Context, uri: Uri): ParcelFileDescriptor {
+    return when (uri.scheme) {
+      "content" -> {
+        context.contentResolver.openFileDescriptor(uri, "r")
+          ?: error("Unable to open content Uri")
+      }
+      "file" -> {
+        val file = File(requireNotNull(uri.path))
+        ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+      }
+      else -> error("Unsupported Uri scheme: ${uri.scheme}")
+    }
+  }
+
+  private fun MediaInfo.getInfo(
+    stream: MediaInfo.Stream,
+    index: Int,
+    parameter: String,
+  ): String = Get(stream, index, parameter)
+
+  // =========================
+  // Full MediaInfo
+  // =========================
+
   suspend fun getMediaInfo(
     context: Context,
     uri: Uri,
@@ -17,11 +45,7 @@ object MediaInfoOps {
   ): Result<MediaInfoData> =
     withContext(Dispatchers.IO) {
       runCatching {
-        val contentResolver = context.contentResolver
-        val pfd =
-          contentResolver.openFileDescriptor(uri, "r")
-            ?: return@runCatching MediaInfoData.empty()
-
+        val pfd = openPfd(context, uri)
         val fd = pfd.detachFd()
         val mi = MediaInfo()
 
@@ -46,9 +70,10 @@ object MediaInfoOps {
       }
     }
 
-  /**
-   * Generate formatted text output from MediaInfoData using native MediaInfo Text format
-   */
+  // =========================
+  // Text output
+  // =========================
+
   suspend fun generateTextOutput(
     context: Context,
     uri: Uri,
@@ -56,21 +81,14 @@ object MediaInfoOps {
   ): Result<String> =
     withContext(Dispatchers.IO) {
       runCatching {
-        val contentResolver = context.contentResolver
-        val pfd =
-          contentResolver.openFileDescriptor(uri, "r")
-            ?: return@runCatching "Error: Could not open file"
-
+        val pfd = openPfd(context, uri)
         val fd = pfd.detachFd()
         val mi = MediaInfo()
 
         try {
           mi.Open(fd, fileName)
-
-          // Set output format to Text (human-readable format like MediaInfo desktop app)
           mi.Option("Inform", "Text")
 
-          // Get the formatted text output
           val textOutput = mi.Inform()
 
           buildString {
@@ -91,11 +109,9 @@ object MediaInfoOps {
       }
     }
 
-  private fun MediaInfo.getInfo(
-    stream: MediaInfo.Stream,
-    index: Int,
-    parameter: String,
-  ): String = Get(stream, index, parameter)
+  // =========================
+  // Extractors
+  // =========================
 
   private fun extractGeneralInfo(mi: MediaInfo): GeneralInfo =
     GeneralInfo(
@@ -193,6 +209,10 @@ object MediaInfoOps {
     }
   }
 
+  // =========================
+  // Data classes
+  // =========================
+
   data class MediaInfoData(
     val general: GeneralInfo,
     val videoStreams: List<VideoStreamInfo>,
@@ -289,6 +309,7 @@ object MediaInfoOps {
     val defaultStream: String = "",
     val forcedStream: String = "",
   )
+}
 
   /**
    * Quickly extract just size, duration, resolution, and framerate metadata from a video file
