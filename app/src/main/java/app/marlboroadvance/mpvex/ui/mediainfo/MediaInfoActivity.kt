@@ -151,19 +151,32 @@ class MediaInfoActivity : ComponentActivity() {
       fileUri = uri
 
       // Get the file name
-      fileName = try {
-        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-          val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-          if (nameIndex >= 0 && cursor.moveToFirst()) {
-            cursor.getString(nameIndex) ?: uri.lastPathSegment ?: "Unknown"
-          } else {
-            uri.lastPathSegment ?: "Unknown"
-          }
-        } ?: uri.lastPathSegment ?: "Unknown"
-      } catch (e: Exception) {
-        Log.e(TAG, "Error getting file name", e)
-        uri.lastPathSegment ?: "Unknown"
-      }
+         fileName = when (uri.scheme) {
+     "http", "https" -> {
+       uri.lastPathSegment
+         ?.substringBefore("?")
+         ?.ifBlank { "Remote Media" }
+         ?: "Remote Media"
+     }
+
+     "content", "file" -> {
+       try {
+         context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+           val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+           if (nameIndex >= 0 && cursor.moveToFirst()) {
+             cursor.getString(nameIndex) ?: uri.lastPathSegment ?: "Unknown"
+           } else {
+             uri.lastPathSegment ?: "Unknown"
+           }
+         } ?: uri.lastPathSegment ?: "Unknown"
+       } catch (e: Exception) {
+         Log.e(TAG, "Error getting file name", e)
+         uri.lastPathSegment ?: "Unknown"
+       }
+     }
+
+     else -> uri.lastPathSegment ?: "Unknown"
+   }
 
       // Load media info
       scope.launch {
