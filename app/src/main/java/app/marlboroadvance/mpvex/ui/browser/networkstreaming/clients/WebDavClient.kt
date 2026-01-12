@@ -51,7 +51,7 @@ class WebDavClient(private val connection: NetworkConnection) : NetworkClient {
    * Construye una URL completa a partir de un path
    * Si el path ya contiene el basePath de la conexión, no lo duplica
    */
-  private fun buildFullUrl(path: String): String {
+  fun buildFullUrl(path: String): String {
     if (path.startsWith("http")) {
       return path
     }
