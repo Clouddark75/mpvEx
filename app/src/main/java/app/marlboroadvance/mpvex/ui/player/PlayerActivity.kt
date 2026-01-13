@@ -463,6 +463,62 @@ class PlayerActivity :
     }
   }
 
+  override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+      when (keyCode) {
+          // Teclas Up/Down para navegación de capítulos
+          android.view.KeyEvent.KEYCODE_DPAD_UP -> {
+              android.util.Log.d("PlayerActivity", "Up pressed - Next chapter")
+              viewModel.handleChapterNext()
+              return true
+          }
+          android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
+              android.util.Log.d("PlayerActivity", "Down pressed - Previous chapter")
+              viewModel.handleChapterPrevious()
+              return true
+          }
+          // Teclas Left/Right para seek
+          android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+              android.util.Log.d("PlayerActivity", "Left pressed - Seek backward")
+              viewModel.seekBy(-10) // o usar doubleTapToSeekDuration
+              return true
+          }
+          android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+              android.util.Log.d("PlayerActivity", "Right pressed - Seek forward")
+              viewModel.seekBy(10) // o usar doubleTapToSeekDuration
+              return true
+          }
+          // Tecla Center/Enter para play/pause
+          android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+          android.view.KeyEvent.KEYCODE_ENTER -> {
+              android.util.Log.d("PlayerActivity", "Center pressed - Play/Pause")
+              viewModel.pauseUnpause()
+              return true
+          }
+          // Media buttons
+          android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+              viewModel.pauseUnpause()
+              return true
+          }
+          android.view.KeyEvent.KEYCODE_MEDIA_PLAY -> {
+              viewModel.unpause()
+              return true
+          }
+          android.view.KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+              viewModel.pause()
+              return true
+          }
+          android.view.KeyEvent.KEYCODE_MEDIA_NEXT -> {
+              viewModel.seekBy(10)
+              return true
+          }
+          android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
+              viewModel.seekBy(-10)
+              return true
+          }
+      }
+      return super.onKeyDown(keyCode, event)
+  }
+
   override fun attachBaseContext(newBase: Context?) {
     if (newBase == null) {
       super.attachBaseContext(null)
