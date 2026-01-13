@@ -74,6 +74,7 @@ object AdvancedPreferencesScreen : Screen {
   @Composable
   override fun Content() {
     val context = LocalContext.current
+    val activity = LocalActivity.current!!
     val backStack = LocalBackStack.current
     val preferences = koinInject<AdvancedPreferences>()
     val settingsManager = koinInject<SettingsManager>()
@@ -345,7 +346,38 @@ object AdvancedPreferencesScreen : Screen {
                     )
                   }
                 },
-                onClick = { locationPicker.launch(null) },
+                onClick = { 
+                  // Crear intent con chooser para mostrar todas las opciones
+                  val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                    // Flags para permitir persistencia de permisos
+                    flags = Intent.FLAG_GRANT_WRITE_URI_PERMISSION or 
+                           Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                           Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
+                           Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+                    
+                    // Intentar iniciar en una ubicación específica (opcional)
+                    putExtra("android.provider.extra.INITIAL_URI", 
+                            Uri.parse("content://com.android.externalstorage.documents/document/primary:"))
+                  }
+                  
+                  // Crear chooser para que el usuario seleccione su gestor de archivos preferido
+                  val chooser = Intent.createChooser(intent, "Select File Manager")
+                  
+                  try {
+                    locationPicker.launch(null)
+                    // Si falla el launcher por defecto, intentar con el chooser
+                  } catch (e: Exception) {
+                    try {
+                      activity.startActivityForResult(chooser, 1001)
+                    } catch (ex: Exception) {
+                      Toast.makeText(
+                        context,
+                        "No file manager available. Please install a file manager app.",
+                        Toast.LENGTH_LONG
+                      ).show()
+                    }
+                  }
+                },
                 iconButtonIcon = { 
                   Icon(
                     Icons.Default.Clear, 
@@ -649,7 +681,6 @@ object AdvancedPreferencesScreen : Screen {
           
           item {
             PreferenceCard {
-              val activity = LocalActivity.current!!
               val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
               val verboseLogging by preferences.verboseLogging.collectAsState()
               
