@@ -297,4 +297,5 @@ private fun setupSubtitlesOptions() {
     MPVLib.setOptionString("sub-speed", subSpeed)
     MPVLib.setOptionString("secondary-sub-delay", subDelay)
     MPVLib.setOptionString("secondary-sub-speed", subSpeed)
+  }
 }
