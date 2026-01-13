@@ -2544,10 +2544,26 @@ private fun applySubtitlePreferences() {
 
     when (keyCode) {
       KeyEvent.KEYCODE_DPAD_UP -> {
+        // Up navega al siguiente capítulo o salta adelante
+        if (isNoSheetOpen) {
+          viewModel.handleChapterNext()
+          return true
+        }
         return super.onKeyDown(keyCode, event)
       }
 
-      KeyEvent.KEYCODE_DPAD_DOWN,
+      KeyEvent.KEYCODE_DPAD_DOWN -> {
+        // Down navega al capítulo anterior o salta atrás
+        if (isNoSheetOpen) {
+          viewModel.handleChapterPrevious()
+          return true
+        }
+        if (isTrackSheetOpen) {
+          return super.onKeyDown(keyCode, event)
+        }
+        return super.onKeyDown(keyCode, event)
+      }
+
       KeyEvent.KEYCODE_DPAD_RIGHT,
       KeyEvent.KEYCODE_DPAD_LEFT,
       -> {
@@ -2575,6 +2591,11 @@ private fun applySubtitlePreferences() {
         if (isTrackSheetOpen) {
           return super.onKeyDown(keyCode, event)
         }
+        // Center/Enter para play/pause
+        if (isNoSheetOpen) {
+          viewModel.pauseUnpause()
+          return true
+        }
         return super.onKeyDown(keyCode, event)
       }
 
@@ -2600,6 +2621,21 @@ private fun applySubtitlePreferences() {
         return true
       }
 
+      KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+        viewModel.pauseUnpause()
+        return true
+      }
+
+      KeyEvent.KEYCODE_MEDIA_PLAY -> {
+        viewModel.unpause()
+        return true
+      }
+
+      KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+        viewModel.pause()
+        return true
+      }
+
       KeyEvent.KEYCODE_MEDIA_REWIND -> {
         viewModel.handleLeftDoubleTap()
         return true
@@ -2616,7 +2652,6 @@ private fun applySubtitlePreferences() {
       }
     }
   }
-
   /**
    * Handles hardware key up events for player control.
    *
