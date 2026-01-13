@@ -956,59 +956,58 @@ class PlayerActivity :
           Log.e(TAG, "Failed to create scripts directory")
           return@runCatching
         }
-
       // Clean existing scripts first
       fileManager.deleteContent(scriptsDir)
       Log.d(TAG, "Cleaned scripts directory")
-      
+
       // Copy user-selected Lua scripts if enabled
       if (advancedPreferences.enableLuaScripts.get()) {
         val selectedScripts = advancedPreferences.selectedLuaScripts.get()
-        val mpvConfStorageUri = advancedPreferences.mpvConfStorageUri.get()
-        
+        val mpvConfStorageLocation = advancedPreferences.mpvConfStorageLocation.get()
+
         Log.d(TAG, "Lua scripts enabled: ${selectedScripts.size} script(s) selected: ${selectedScripts.joinToString()}")
-        
+ 
         if (selectedScripts.isEmpty()) {
           Log.d(TAG, "No Lua scripts selected, skipping copy")
           return@runCatching
         }
-        
-        if (mpvConfStorageUri.isBlank()) {
-          Log.w(TAG, "MPV config storage URI not set, cannot copy Lua scripts")
+
+        if (mpvConfStorageLocation.isBlank()) {
+          Log.w(TAG, "MPV config storage location not set, cannot copy Lua scripts")
           return@runCatching
         }
-        
-        val tree = DocumentFile.fromTreeUri(this, mpvConfStorageUri.toUri())
-        if (tree == null) {
-          Log.e(TAG, "Failed to access MPV config storage directory")
+
+        val sourceFolder = File(mpvConfStorageLocation)
+
+        if (!sourceFolder.exists() || !sourceFolder.isDirectory) {
+          Log.e(TAG, "MPV config storage directory does not exist or is not a directory: $mpvConfStorageLocation")
           return@runCatching
         }
-        
-        if (!tree.exists() || !tree.canRead()) {
-          Log.e(TAG, "MPV config storage directory does not exist or cannot be read")
+ 
+        if (!sourceFolder.canRead()) {
+          Log.e(TAG, "MPV config storage directory cannot be read: $mpvConfStorageLocation")
           return@runCatching
         }
-        
+
         var successCount = 0
         var failCount = 0
-        
+
         selectedScripts.forEach { scriptName ->
           runCatching {
-            val scriptFile = tree.findFile(scriptName)
-            if (scriptFile != null && scriptFile.exists() && scriptFile.canRead()) {
-              contentResolver.openInputStream(scriptFile.uri)?.use { input ->
-                val scriptsDirPath = File(filesDir.path, "scripts")
-                scriptsDirPath.mkdirs()
-                val targetFile = File(scriptsDirPath, scriptName)
-                targetFile.writeText(input.bufferedReader().readText())
-                Log.d(TAG, "Successfully copied Lua script: $scriptName to ${targetFile.absolutePath}")
-                successCount++
-              } ?: run {
-                Log.e(TAG, "Failed to open input stream for Lua script: $scriptName")
-                failCount++
-              }
+            val scriptFile = File(sourceFolder, scriptName)
+
+            if (scriptFile.exists() && scriptFile.isFile && scriptFile.canRead()) {
+              val scriptsDirPath = File(filesDir.path, "scripts")
+              scriptsDirPath.mkdirs()
+              val targetFile = File(scriptsDirPath, scriptName)
+
+              // Copy file directly
+              scriptFile.copyTo(targetFile, overwrite = true)
+
+              Log.d(TAG, "Successfully copied Lua script: $scriptName to ${targetFile.absolutePath}")
+              successCount++
             } else {
-              Log.w(TAG, "Lua script not found or not readable: $scriptName")
+              Log.w(TAG, "Lua script not found or not readable: $scriptName at ${scriptFile.absolutePath}")
               failCount++
             }
           }.onFailure { e ->
@@ -1016,7 +1015,7 @@ class PlayerActivity :
             failCount++
           }
         }
-        
+
         Log.d(TAG, "Lua scripts copy completed: $successCount succeeded, $failCount failed")
       } else {
         Log.d(TAG, "Lua scripts disabled in preferences")
