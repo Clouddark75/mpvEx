@@ -178,8 +178,6 @@ class MediaPlaybackService :
     updateMediaSession()
   }
 
-  
-
   private fun setupMediaSession() {
     mediaSession =
       MediaSessionCompat(this, TAG).apply {
@@ -201,30 +199,48 @@ class MediaPlaybackService :
             }
 
             override fun onSkipToNext() {
-              Log.d(TAG, "onSkipToNext called")
+              Log.d(TAG, "onSkipToNext called - Seek forward")
+              // Previous/Next hacen seek (avanzar/retroceder)
+              val seekDuration = 10 // o usar playerPreferences.doubleTapToSeekDuration si está disponible
               val seekMode = if (playerPreferences.usePreciseSeeking.get()) "relative+exact" else "relative+keyframes"
-              MPVLib.command("seek", "10", seekMode)
+              MPVLib.command("seek", seekDuration.toString(), seekMode)
             }
 
             override fun onSkipToPrevious() {
-              Log.d(TAG, "onSkipToPrevious called")
+              Log.d(TAG, "onSkipToPrevious called - Seek backward")
+              // Previous/Next hacen seek (avanzar/retroceder)
+              val seekDuration = 10 // o usar playerPreferences.doubleTapToSeekDuration si está disponible
               val seekMode = if (playerPreferences.usePreciseSeeking.get()) "relative+exact" else "relative+keyframes"
-              MPVLib.command("seek", "-10", seekMode)
+              MPVLib.command("seek", (-seekDuration).toString(), seekMode)
             }
 
             override fun onSeekTo(pos: Long) {
               Log.d(TAG, "onSeekTo called: $pos")
               MPVLib.setPropertyDouble("time-pos", pos / 1000.0)
             }
+
+            // Estos métodos manejan las teclas Up/Down para navegación de capítulos
+            override fun onCustomAction(action: String, extras: android.os.Bundle?) {
+              when (action) {
+                "chapter_next" -> {
+                  Log.d(TAG, "Chapter next called")
+                  MPVLib.command("add", "chapter", "1")
+                }
+                "chapter_previous" -> {
+                  Log.d(TAG, "Chapter previous called")
+                  MPVLib.command("add", "chapter", "-1")
+                }
+              }
+            }
           },
         )
-
+  
         // Set flags to handle media buttons and transport controls
         setFlags(
           MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
             MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS,
         )
-
+  
         isActive = true
       }
     sessionToken = mediaSession.sessionToken
