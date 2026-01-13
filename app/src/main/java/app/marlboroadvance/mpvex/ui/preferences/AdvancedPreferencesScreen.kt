@@ -65,8 +65,6 @@ import me.zhanghai.compose.preference.TwoTargetIconButtonPreference
 import org.koin.compose.koinInject
 import java.io.File
 import kotlin.io.path.deleteIfExists
-import kotlin.io.path.outputStream
-import kotlin.io.path.readLines
 
 @Serializable
 object AdvancedPreferencesScreen : Screen {
@@ -128,6 +126,26 @@ object AdvancedPreferencesScreen : Screen {
                 ).show()
               },
             )
+          }
+        }
+      }
+
+    // File picker launcher para seleccionar carpeta directamente
+    val folderPickerLauncher =
+      rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+      ) { uri ->
+        uri?.let {
+          // Convertir URI a path directo
+          val path = convertUriToPath(uri)
+          if (path != null) {
+            preferences.mpvConfStorageLocation.set(path)
+          } else {
+            Toast.makeText(
+              context,
+              "Could not get folder path",
+              Toast.LENGTH_SHORT,
+            ).show()
           }
         }
       }
@@ -201,17 +219,8 @@ object AdvancedPreferencesScreen : Screen {
       },
     ) { padding ->
       ProvidePreferenceLocals {
-        val locationPicker =
-          rememberLauncherForActivityResult(
-            ActivityResultContracts.OpenDocumentTree(),
-          ) { uri ->
-            if (uri == null) return@rememberLauncherForActivityResult
-
-            val flags = Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION
-            context.contentResolver.takePersistableUriPermission(uri, flags)
-            preferences.mpvConfStorageUri.set(uri.toString())
-          }
-        val mpvConfStorageLocation by preferences.mpvConfStorageUri.collectAsState()
+        val mpvConfStorageLocation by preferences.mpvConfStorageLocation.collectAsState()
+        
         LazyColumn(
           modifier = Modifier
             .fillMaxSize()
@@ -282,28 +291,38 @@ object AdvancedPreferencesScreen : Screen {
               LaunchedEffect(mpvConfStorageLocation) {
                 if (mpvConfStorageLocation.isBlank()) return@LaunchedEffect
                 withContext(Dispatchers.IO) {
-                  val tempFile = kotlin.io.path.createTempFile()
                   runCatching {
-                    val tree =
-                      DocumentFile.fromTreeUri(
-                        context,
-                        mpvConfStorageLocation.toUri(),
-                      )
-                    val mpvConfFile = tree?.findFile("mpv.conf")
-                    if (mpvConfFile != null && mpvConfFile.exists()) {
-                      context.contentResolver
-                        .openInputStream(
-                          mpvConfFile.uri,
-                        )?.copyTo(tempFile.outputStream())
-                      val content = tempFile.readLines().fastJoinToString("\n")
+                    val folder = File(mpvConfStorageLocation)
+                    if (!folder.exists() || !folder.isDirectory) {
+                      withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                          context,
+                          "Folder does not exist: $mpvConfStorageLocation",
+                          Toast.LENGTH_SHORT,
+                        ).show()
+                      }
+                      return@withContext
+                    }
+                    
+                    // Load mpv.conf
+                    val mpvConfFile = File(folder, "mpv.conf")
+                    if (mpvConfFile.exists() && mpvConfFile.isFile) {
+                      val content = mpvConfFile.readText()
                       preferences.mpvConf.set(content)
                       File(context.filesDir, "mpv.conf").writeText(content)
                       withContext(Dispatchers.Main) {
                         mpvConf = content
                       }
                     }
+                  }.onFailure { error ->
+                    withContext(Dispatchers.Main) {
+                      Toast.makeText(
+                        context,
+                        "Error loading mpv.conf: ${error.message}",
+                        Toast.LENGTH_SHORT,
+                      ).show()
+                    }
                   }
-                  tempFile.deleteIfExists()
                 }
               }
               
@@ -311,28 +330,29 @@ object AdvancedPreferencesScreen : Screen {
               LaunchedEffect(mpvConfStorageLocation) {
                 if (mpvConfStorageLocation.isBlank()) return@LaunchedEffect
                 withContext(Dispatchers.IO) {
-                  val tempFile = kotlin.io.path.createTempFile()
                   runCatching {
-                    val tree =
-                      DocumentFile.fromTreeUri(
-                        context,
-                        mpvConfStorageLocation.toUri(),
-                      )
-                    val inputConfFile = tree?.findFile("input.conf")
-                    if (inputConfFile != null && inputConfFile.exists()) {
-                      context.contentResolver
-                        .openInputStream(
-                          inputConfFile.uri,
-                        )?.copyTo(tempFile.outputStream())
-                      val content = tempFile.readLines().fastJoinToString("\n")
+                    val folder = File(mpvConfStorageLocation)
+                    if (!folder.exists() || !folder.isDirectory) return@withContext
+                    
+                    // Load input.conf
+                    val inputConfFile = File(folder, "input.conf")
+                    if (inputConfFile.exists() && inputConfFile.isFile) {
+                      val content = inputConfFile.readText()
                       preferences.inputConf.set(content)
                       File(context.filesDir, "input.conf").writeText(content)
                       withContext(Dispatchers.Main) {
                         inputConf = content
                       }
                     }
+                  }.onFailure { error ->
+                    withContext(Dispatchers.Main) {
+                      Toast.makeText(
+                        context,
+                        "Error loading input.conf: ${error.message}",
+                        Toast.LENGTH_SHORT,
+                      ).show()
+                    }
                   }
-                  tempFile.deleteIfExists()
                 }
               }
               
@@ -341,42 +361,19 @@ object AdvancedPreferencesScreen : Screen {
                 summary = {
                   if (mpvConfStorageLocation.isNotBlank()) {
                     Text(
-                      getSimplifiedPathFromUri(mpvConfStorageLocation),
+                      mpvConfStorageLocation,
+                      color = MaterialTheme.colorScheme.outline,
+                    )
+                  } else {
+                    Text(
+                      "Not set - tap to select folder",
                       color = MaterialTheme.colorScheme.outline,
                     )
                   }
                 },
                 onClick = { 
-                  // Crear intent con chooser para mostrar todas las opciones
-                  val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-                    // Flags para permitir persistencia de permisos
-                    flags = Intent.FLAG_GRANT_WRITE_URI_PERMISSION or 
-                           Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                           Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
-                           Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
-                    
-                    // Intentar iniciar en una ubicación específica (opcional)
-                    putExtra("android.provider.extra.INITIAL_URI", 
-                            Uri.parse("content://com.android.externalstorage.documents/document/primary:"))
-                  }
-                  
-                  // Crear chooser para que el usuario seleccione su gestor de archivos preferido
-                  val chooser = Intent.createChooser(intent, "Select File Manager")
-                  
-                  try {
-                    locationPicker.launch(null)
-                    // Si falla el launcher por defecto, intentar con el chooser
-                  } catch (e: Exception) {
-                    try {
-                      activity.startActivityForResult(chooser, 1001)
-                    } catch (ex: Exception) {
-                      Toast.makeText(
-                        context,
-                        "No file manager available. Please install a file manager app.",
-                        Toast.LENGTH_LONG
-                      ).show()
-                    }
-                  }
+                  // Lanzar el picker de carpetas
+                  folderPickerLauncher.launch(null)
                 },
                 iconButtonIcon = { 
                   Icon(
@@ -385,7 +382,7 @@ object AdvancedPreferencesScreen : Screen {
                     tint = MaterialTheme.colorScheme.error,
                   ) 
                 },
-                onIconButtonClick = { preferences.mpvConfStorageUri.delete() },
+                onIconButtonClick = { preferences.mpvConfStorageLocation.delete() },
                 iconButtonEnabled = mpvConfStorageLocation.isNotBlank(),
               )
               
@@ -724,5 +721,18 @@ object AdvancedPreferencesScreen : Screen {
   }
 }
 
-fun getSimplifiedPathFromUri(uri: String): String =
-  Environment.getExternalStorageDirectory().canonicalPath + "/" + Uri.decode(uri).substringAfterLast(":")
+// Función para convertir URI a path directo
+fun convertUriToPath(uri: Uri): String? {
+  val uriString = uri.toString()
+  
+  // Decodificar la URI
+  val decoded = Uri.decode(uriString)
+  
+  // Extraer el path después de "tree/primary:"
+  val pathPart = decoded.substringAfter("tree/primary:", "")
+  
+  if (pathPart.isEmpty()) return null
+  
+  // Construir el path completo
+  return "/storage/emulated/0/$pathPart"
+}
