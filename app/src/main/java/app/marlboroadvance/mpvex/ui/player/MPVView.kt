@@ -290,7 +290,11 @@ class MPVView(
     val fontsDirPath = "${context.filesDir.path}/fonts/"
     MPVLib.setOptionString("sub-fonts-dir", fontsDirPath)
     
-    // Delay and speed for both primary and secondary
+    // IMPORTANTE: Solo establecer opciones BÁSICAS aquí
+    // Las opciones de estilo/apariencia se aplicarán DESPUÉS de cargar mpv.conf
+    // Esto asegura que mpv.conf pueda sobrescribirlas
+    
+    // Delay y speed (estas son seguras de establecer aquí)
     val subDelay = (subtitlesPreferences.defaultSubDelay.get() / 1000.0).toString()
     val subSpeed = subtitlesPreferences.defaultSubSpeed.get().toString()
     MPVLib.setOptionString("sub-delay", subDelay)
@@ -298,22 +302,9 @@ class MPVView(
     MPVLib.setOptionString("secondary-sub-delay", subDelay)
     MPVLib.setOptionString("secondary-sub-speed", subSpeed)
 
-    val preferredFont = subtitlesPreferences.font.get()
-    if (preferredFont.isNotBlank()) {
-      MPVLib.setOptionString("sub-font", preferredFont)
-      MPVLib.setOptionString("secondary-sub-font", preferredFont)
-    }
-    // If blank, MPV uses its default font
-
-    if (subtitlesPreferences.overrideAssSubs.get()) {
-      MPVLib.setOptionString("sub-ass-override", "force")
-      MPVLib.setOptionString("sub-ass-justify", "yes")
-      MPVLib.setOptionString("secondary-sub-ass-override", "force")
-    } else {
-      MPVLib.setOptionString("sub-ass-override", "no")
-      MPVLib.setOptionString("secondary-sub-ass-override", "no")
-    }
-
+    // NOTA: Ya NO establecemos opciones de estilo aquí (font, color, etc.)
+    // Esas se aplicarán en applySubtitlePreferences() solo si mpv.conf no las define
+  }
     // Typography and styling for both primary and secondary
     val fontSize = subtitlesPreferences.fontSize.get().toString()
     val bold = if (subtitlesPreferences.bold.get()) "yes" else "no"
