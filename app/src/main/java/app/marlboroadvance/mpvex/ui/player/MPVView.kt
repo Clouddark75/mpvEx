@@ -279,7 +279,7 @@ class MPVView(
   }
 
   // Setup
-  private fun setupSubtitlesOptions() {
+private fun setupSubtitlesOptions() {
     // Disable MPV's automatic subtitle selection
     // App will handle track selection manually via TrackSelector to respect user choices
     MPVLib.setOptionString("slang", "")
@@ -290,65 +290,11 @@ class MPVView(
     val fontsDirPath = "${context.filesDir.path}/fonts/"
     MPVLib.setOptionString("sub-fonts-dir", fontsDirPath)
     
-    // IMPORTANTE: Solo establecer opciones BÁSICAS aquí
-    // Las opciones de estilo/apariencia se aplicarán DESPUÉS de cargar mpv.conf
-    // Esto asegura que mpv.conf pueda sobrescribirlas
-    
-    // Delay y speed (estas son seguras de establecer aquí)
+    // Delay and speed settings
     val subDelay = (subtitlesPreferences.defaultSubDelay.get() / 1000.0).toString()
     val subSpeed = subtitlesPreferences.defaultSubSpeed.get().toString()
     MPVLib.setOptionString("sub-delay", subDelay)
     MPVLib.setOptionString("sub-speed", subSpeed)
     MPVLib.setOptionString("secondary-sub-delay", subDelay)
     MPVLib.setOptionString("secondary-sub-speed", subSpeed)
-
-    // NOTA: Ya NO establecemos opciones de estilo aquí (font, color, etc.)
-    // Esas se aplicarán en applySubtitlePreferences() solo si mpv.conf no las define
-  }
-    // Typography and styling for both primary and secondary
-    val fontSize = subtitlesPreferences.fontSize.get().toString()
-    val bold = if (subtitlesPreferences.bold.get()) "yes" else "no"
-    val italic = if (subtitlesPreferences.italic.get()) "yes" else "no"
-    val justify = subtitlesPreferences.justification.get().value
-    val textColor = subtitlesPreferences.textColor.get().toColorHexString()
-    val backgroundColor = subtitlesPreferences.backgroundColor.get().toColorHexString()
-    val borderColor = subtitlesPreferences.borderColor.get().toColorHexString()
-    val borderSize = subtitlesPreferences.borderSize.get().toString()
-    val borderStyle = subtitlesPreferences.borderStyle.get().value
-    val shadowOffset = subtitlesPreferences.shadowOffset.get().toString()
-    val subPos = subtitlesPreferences.subPos.get().toString()
-    val subScale = subtitlesPreferences.subScale.get().toString()
-
-    MPVLib.setOptionString("sub-font-size", fontSize)
-    MPVLib.setOptionString("sub-bold", bold)
-    MPVLib.setOptionString("sub-italic", italic)
-    MPVLib.setOptionString("sub-justify", justify)
-    MPVLib.setOptionString("sub-color", textColor)
-    MPVLib.setOptionString("sub-back-color", backgroundColor)
-    MPVLib.setOptionString("sub-border-color", borderColor)
-    MPVLib.setOptionString("sub-border-size", borderSize)
-    MPVLib.setOptionString("sub-border-style", borderStyle)
-    MPVLib.setOptionString("sub-shadow-offset", shadowOffset)
-    MPVLib.setOptionString("sub-scale", subScale)
-    MPVLib.setOptionString("sub-pos", subPos)
-    
-    MPVLib.setOptionString("secondary-sub-font-size", fontSize)
-    MPVLib.setOptionString("secondary-sub-bold", bold)
-    MPVLib.setOptionString("secondary-sub-italic", italic)
-    MPVLib.setOptionString("secondary-sub-justify", justify)
-    MPVLib.setOptionString("secondary-sub-color", textColor)
-    MPVLib.setOptionString("secondary-sub-back-color", backgroundColor)
-    MPVLib.setOptionString("secondary-sub-border-color", borderColor)
-    MPVLib.setOptionString("secondary-sub-border-size", borderSize)
-    MPVLib.setOptionString("secondary-sub-border-style", borderStyle)
-    MPVLib.setOptionString("secondary-sub-shadow-offset", shadowOffset)
-    MPVLib.setOptionString("secondary-sub-scale", subScale)
-    MPVLib.setOptionString("secondary-sub-pos", subPos)
-
-    val scaleByWindow = if (subtitlesPreferences.scaleByWindow.get()) "yes" else "no"
-    MPVLib.setOptionString("sub-scale-by-window", scaleByWindow)
-    MPVLib.setOptionString("sub-use-margins", scaleByWindow)
-    MPVLib.setOptionString("secondary-sub-scale-by-window", scaleByWindow)
-    MPVLib.setOptionString("secondary-sub-use-margins", scaleByWindow)
-  }
 }
