@@ -40,8 +40,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
-import androidx.documentfile.provider.DocumentFile
 import app.marlboroadvance.mpvex.preferences.AdvancedPreferences
 import app.marlboroadvance.mpvex.preferences.preference.collectAsState
 import app.marlboroadvance.mpvex.presentation.Screen
@@ -50,6 +48,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import org.koin.compose.koinInject
+import java.io.File
 
 @Serializable
 object LuaScriptsScreen : Screen {
@@ -61,7 +60,7 @@ object LuaScriptsScreen : Screen {
     val preferences = koinInject<AdvancedPreferences>()
     val scope = rememberCoroutineScope()
     
-    val mpvConfStorageLocation by preferences.mpvConfStorageUri.collectAsState()
+    val mpvConfStorageLocation by preferences.mpvConfStorageLocation.collectAsState()
     val selectedScripts by preferences.selectedLuaScripts.collectAsState()
     val enableLuaScripts by preferences.enableLuaScripts.collectAsState()
     
@@ -78,11 +77,12 @@ object LuaScriptsScreen : Screen {
       withContext(Dispatchers.IO) {
         val scripts = mutableListOf<String>()
         runCatching {
-          val tree = DocumentFile.fromTreeUri(context, mpvConfStorageLocation.toUri())
-          if (tree != null && tree.exists()) {
-            tree.listFiles().forEach { file ->
-              if (file.isFile && file.name?.endsWith(".lua") == true) {
-                file.name?.let { scripts.add(it) }
+          val folder = File(mpvConfStorageLocation)
+          
+          if (folder.exists() && folder.isDirectory) {
+            folder.listFiles()?.forEach { file ->
+              if (file.isFile && file.name.endsWith(".lua")) {
+                scripts.add(file.name)
               }
             }
           }
@@ -148,57 +148,95 @@ object LuaScriptsScreen : Screen {
         }
       },
     ) { padding ->
-      LazyColumn(
+      Box(
         modifier = Modifier
           .fillMaxSize()
           .padding(padding)
       ) {
-        items(availableScripts) { scriptName ->
-          Column(
-            modifier = Modifier.fillMaxWidth()
-          ) {
-            Row(
+        when {
+          isLoading -> {
+            Text(
+              text = "Loading scripts...",
               modifier = Modifier
-                .fillMaxWidth()
-                .clickable { 
-                  toggleScriptSelection(scriptName) 
-                }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-              horizontalArrangement = Arrangement.SpaceBetween,
-              verticalAlignment = Alignment.CenterVertically,
+                .align(Alignment.Center)
+                .padding(16.dp),
+              style = MaterialTheme.typography.bodyLarge,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+          availableScripts.isEmpty() -> {
+            Column(
+              modifier = Modifier
+                .align(Alignment.Center)
+                .padding(16.dp),
+              horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-              Row(
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-              ) {
-                Checkbox(
-                  checked = selectedScripts.contains(scriptName),
-                  onCheckedChange = { toggleScriptSelection(scriptName) },
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                  text = scriptName,
-                  style = MaterialTheme.typography.bodyLarge,
-                  maxLines = 1,
-                  overflow = TextOverflow.Ellipsis,
-                )
-              }
-              
-              IconButton(
-                onClick = {
-                  backStack.add(LuaScriptEditorScreen(scriptName = scriptName))
+              Text(
+                text = "No Lua scripts found",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+              Text(
+                text = "Add .lua files to:\n$mpvConfStorageLocation",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(top = 8.dp),
+              )
+            }
+          }
+          else -> {
+            LazyColumn(
+              modifier = Modifier.fillMaxSize()
+            ) {
+              items(availableScripts) { scriptName ->
+                Column(
+                  modifier = Modifier.fillMaxWidth()
+                ) {
+                  Row(
+                    modifier = Modifier
+                      .fillMaxWidth()
+                      .clickable { 
+                        toggleScriptSelection(scriptName) 
+                      }
+                      .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                  ) {
+                    Row(
+                      modifier = Modifier.weight(1f),
+                      verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                      Checkbox(
+                        checked = selectedScripts.contains(scriptName),
+                        onCheckedChange = { toggleScriptSelection(scriptName) },
+                      )
+                      Spacer(modifier = Modifier.width(12.dp))
+                      Text(
+                        text = scriptName,
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                      )
+                    }
+                    
+                    IconButton(
+                      onClick = {
+                        backStack.add(LuaScriptEditorScreen(scriptName = scriptName))
+                      }
+                    ) {
+                      Icon(
+                        Icons.Default.Edit,
+                        contentDescription = "Edit",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                      )
+                    }
+                  }
+                  HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                  )
                 }
-              ) {
-                Icon(
-                  Icons.Default.Edit,
-                  contentDescription = "Edit",
-                  tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
               }
             }
-            HorizontalDivider(
-              modifier = Modifier.padding(horizontal = 16.dp)
-            )
           }
         }
       }
