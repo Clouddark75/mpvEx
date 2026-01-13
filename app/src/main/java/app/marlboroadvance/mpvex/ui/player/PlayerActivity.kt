@@ -1878,40 +1878,103 @@ class PlayerActivity :
    * Applies all saved subtitle preferences when a file is loaded.
    * This ensures subtitle customizations (font, colors, position, etc.) persist across videos.
    */
-  private fun applySubtitlePreferences() {
-    // Typography settings
-    MPVLib.setPropertyString("sub-font", subtitlesPreferences.font.get())
-    MPVLib.setPropertyString("secondary-sub-font", subtitlesPreferences.font.get())
-    MPVLib.setPropertyInt("sub-font-size", subtitlesPreferences.fontSize.get())
-    MPVLib.setPropertyBoolean("sub-bold", subtitlesPreferences.bold.get())
-    MPVLib.setPropertyBoolean("sub-italic", subtitlesPreferences.italic.get())
-    MPVLib.setPropertyString("sub-justify", subtitlesPreferences.justification.get().value)
-    MPVLib.setPropertyString("sub-border-style", subtitlesPreferences.borderStyle.get().value)
-    MPVLib.setPropertyInt("sub-outline-size", subtitlesPreferences.borderSize.get())
-    MPVLib.setPropertyInt("sub-shadow-offset", subtitlesPreferences.shadowOffset.get())
+  /**
+ * Applies saved subtitle preferences when a file is loaded.
+ * 
+ * IMPORTANTE: Solo aplica preferencias si mpv.conf NO las ha definido.
+ * Esto da prioridad absoluta a mpv.conf sobre las preferencias de la app.
+ */
+private fun applySubtitlePreferences() {
+    // Helper function para verificar si una opción fue definida en mpv.conf
+    fun isDefinedInConfig(option: String): Boolean {
+        return runCatching {
+            // Intentar obtener el valor actual - si viene de mpv.conf será diferente al default
+            val currentValue = MPVLib.getPropertyString(option)
+            currentValue != null
+        }.getOrDefault(false)
+    }
 
-    // Color settings
-    MPVLib.setPropertyString("sub-color", subtitlesPreferences.textColor.get().toColorHexString())
-    MPVLib.setPropertyString("sub-border-color", subtitlesPreferences.borderColor.get().toColorHexString())
-    MPVLib.setPropertyString("sub-back-color", subtitlesPreferences.backgroundColor.get().toColorHexString())
+    // === Typography settings ===
+    if (!isDefinedInConfig("sub-font")) {
+        val font = subtitlesPreferences.font.get()
+        if (font.isNotBlank()) {
+            MPVLib.setPropertyString("sub-font", font)
+            MPVLib.setPropertyString("secondary-sub-font", font)
+        }
+    }
 
-    // Miscellaneous settings
-    val overrideAssSubs = subtitlesPreferences.overrideAssSubs.get()
-    MPVLib.setPropertyString("sub-ass-override", if (overrideAssSubs) "force" else "scale")
-    MPVLib.setPropertyString("secondary-sub-ass-override", if (overrideAssSubs) "force" else "scale")
+    if (!isDefinedInConfig("sub-font-size")) {
+        MPVLib.setPropertyInt("sub-font-size", subtitlesPreferences.fontSize.get())
+    }
+
+    if (!isDefinedInConfig("sub-bold")) {
+        MPVLib.setPropertyBoolean("sub-bold", subtitlesPreferences.bold.get())
+    }
+
+    if (!isDefinedInConfig("sub-italic")) {
+        MPVLib.setPropertyBoolean("sub-italic", subtitlesPreferences.italic.get())
+    }
+
+    if (!isDefinedInConfig("sub-justify")) {
+        MPVLib.setPropertyString("sub-justify", subtitlesPreferences.justification.get().value)
+    }
+
+    if (!isDefinedInConfig("sub-border-style")) {
+        MPVLib.setPropertyString("sub-border-style", subtitlesPreferences.borderStyle.get().value)
+    }
+
+    if (!isDefinedInConfig("sub-border-size")) {
+        MPVLib.setPropertyInt("sub-border-size", subtitlesPreferences.borderSize.get())
+    }
+
+    if (!isDefinedInConfig("sub-shadow-offset")) {
+        MPVLib.setPropertyInt("sub-shadow-offset", subtitlesPreferences.shadowOffset.get())
+    }
+
+    // === Color settings ===
+    if (!isDefinedInConfig("sub-color")) {
+        MPVLib.setPropertyString("sub-color", subtitlesPreferences.textColor.get().toColorHexString())
+    }
+
+    if (!isDefinedInConfig("sub-border-color")) {
+        MPVLib.setPropertyString("sub-border-color", subtitlesPreferences.borderColor.get().toColorHexString())
+    }
+
+    if (!isDefinedInConfig("sub-back-color")) {
+        MPVLib.setPropertyString("sub-back-color", subtitlesPreferences.backgroundColor.get().toColorHexString())
+    }
+
+    // === Miscellaneous settings ===
+    // CRÍTICO: Esta es la opción que estaba causando el problema principal
+    if (!isDefinedInConfig("sub-ass-override")) {
+        val overrideAssSubs = subtitlesPreferences.overrideAssSubs.get()
+        val overrideValue = if (overrideAssSubs) "force" else "scale"
+        MPVLib.setPropertyString("sub-ass-override", overrideValue)
+        MPVLib.setPropertyString("secondary-sub-ass-override", overrideValue)
+    }
+
+    // Force margins - estas son seguras de aplicar siempre
     MPVLib.setPropertyString("sub-ass-force-margins", "yes")
     MPVLib.setPropertyString("secondary-sub-ass-force-margins", "yes")
     
-    val scaleByWindow = subtitlesPreferences.scaleByWindow.get()
-    val scaleValue = if (scaleByWindow) "yes" else "no"
-    MPVLib.setPropertyString("sub-scale-by-window", scaleValue)
-    MPVLib.setPropertyString("sub-use-margins", scaleValue)
-    
-    MPVLib.setPropertyFloat("sub-scale", subtitlesPreferences.subScale.get())
-    MPVLib.setPropertyInt("sub-pos", subtitlesPreferences.subPos.get())
+    if (!isDefinedInConfig("sub-scale-by-window")) {
+        val scaleByWindow = subtitlesPreferences.scaleByWindow.get()
+        val scaleValue = if (scaleByWindow) "yes" else "no"
+        MPVLib.setPropertyString("sub-scale-by-window", scaleValue)
+        MPVLib.setPropertyString("sub-use-margins", scaleValue)
+    }
 
-    Log.d(TAG, "Applied subtitle preferences")
+    if (!isDefinedInConfig("sub-scale")) {
+        MPVLib.setPropertyFloat("sub-scale", subtitlesPreferences.subScale.get())
+    }
+
+    if (!isDefinedInConfig("sub-pos")) {
+        MPVLib.setPropertyInt("sub-pos", subtitlesPreferences.subPos.get())
+    }
+
+    Log.d(TAG, "Applied subtitle preferences (respecting mpv.conf overrides)")
   }
+
 
   /**
    * Captures a thumbnail from the video for use in the notification.
