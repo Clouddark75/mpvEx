@@ -42,8 +42,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
-import androidx.core.net.toUri
-import androidx.documentfile.provider.DocumentFile
 import app.marlboroadvance.mpvex.preferences.AdvancedPreferences
 import app.marlboroadvance.mpvex.preferences.preference.collectAsState
 import app.marlboroadvance.mpvex.presentation.Screen
@@ -55,9 +53,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import org.koin.compose.koinInject
 import java.io.File
-import kotlin.io.path.deleteIfExists
-import kotlin.io.path.outputStream
-import kotlin.io.path.readLines
 
 @Serializable
 data class LuaScriptEditorScreen(
@@ -72,7 +67,7 @@ data class LuaScriptEditorScreen(
     val preferences = koinInject<AdvancedPreferences>()
     val scope = rememberCoroutineScope()
     
-    val mpvConfStorageLocation by preferences.mpvConfStorageUri.collectAsState()
+    val mpvConfStorageLocation by preferences.mpvConfStorageLocation.collectAsState()
     
     val isNewScript = scriptName == null
     val title = if (isNewScript) "Create Lua Script" else "Edit Lua Script"
@@ -86,20 +81,27 @@ data class LuaScriptEditorScreen(
     LaunchedEffect(scriptName, mpvConfStorageLocation) {
       if (scriptName != null && mpvConfStorageLocation.isNotBlank()) {
         withContext(Dispatchers.IO) {
-          val tempFile = kotlin.io.path.createTempFile()
           runCatching {
-            val tree = DocumentFile.fromTreeUri(context, mpvConfStorageLocation.toUri())
-            val scriptFile = tree?.findFile(scriptName)
-            if (scriptFile != null && scriptFile.exists()) {
-              context.contentResolver.openInputStream(scriptFile.uri)?.copyTo(tempFile.outputStream())
-              val content = tempFile.readLines().joinToString("\n")
+            val folder = File(mpvConfStorageLocation)
+            if (!folder.exists() || !folder.isDirectory) return@withContext
+            
+            val scriptFile = File(folder, scriptName)
+            if (scriptFile.exists() && scriptFile.isFile) {
+              val content = scriptFile.readText()
               withContext(Dispatchers.Main) {
                 scriptContent = content
                 hasUnsavedChanges = false
               }
             }
+          }.onFailure { error ->
+            withContext(Dispatchers.Main) {
+              Toast.makeText(
+                context,
+                "Error loading script: ${error.message}",
+                Toast.LENGTH_SHORT
+              ).show()
+            }
           }
-          tempFile.deleteIfExists()
         }
       }
     }
@@ -121,37 +123,44 @@ data class LuaScriptEditorScreen(
             return@launch
           }
           
-          val tree = DocumentFile.fromTreeUri(context, mpvConfStorageLocation.toUri())
-          if (tree == null) {
+          val folder = File(mpvConfStorageLocation)
+          
+          // Create folder if it doesn't exist
+          if (!folder.exists()) {
+            if (!folder.mkdirs()) {
+              withContext(Dispatchers.Main) {
+                Toast.makeText(
+                  context,
+                  "Failed to create folder: $mpvConfStorageLocation",
+                  Toast.LENGTH_LONG
+                ).show()
+              }
+              return@launch
+            }
+          }
+          
+          if (!folder.isDirectory) {
             withContext(Dispatchers.Main) {
-              Toast.makeText(context, "No storage location set", Toast.LENGTH_LONG).show()
+              Toast.makeText(
+                context,
+                "Path is not a directory: $mpvConfStorageLocation",
+                Toast.LENGTH_LONG
+              ).show()
             }
             return@launch
           }
 
           // If renaming, delete old file
           if (!isNewScript && scriptName != null && scriptName != finalFileName) {
-            tree.findFile(scriptName)?.delete()
+            val oldFile = File(folder, scriptName)
+            if (oldFile.exists()) {
+              oldFile.delete()
+            }
           }
 
-          val existing = tree.findFile(finalFileName)
-          val scriptFile = existing ?: tree.createFile("text/plain", finalFileName)?.also { it.renameTo(finalFileName) }
-          val uri = scriptFile?.uri ?: run {
-            withContext(Dispatchers.Main) {
-              Toast.makeText(context, "Failed to create file", Toast.LENGTH_LONG).show()
-            }
-            return@launch
-          }
-
-          context.contentResolver.openOutputStream(uri, "wt")?.use { out ->
-            out.write(scriptContent.toByteArray())
-            out.flush()
-          } ?: run {
-            withContext(Dispatchers.Main) {
-              Toast.makeText(context, "Failed to open output stream", Toast.LENGTH_LONG).show()
-            }
-            return@launch
-          }
+          // Write script file
+          val scriptFile = File(folder, finalFileName)
+          scriptFile.writeText(scriptContent)
           
           withContext(Dispatchers.Main) {
             hasUnsavedChanges = false
@@ -174,16 +183,13 @@ data class LuaScriptEditorScreen(
       
       scope.launch(Dispatchers.IO) {
         try {
-          val tree = DocumentFile.fromTreeUri(context, mpvConfStorageLocation.toUri())
-          val scriptFile = tree?.findFile(scriptName)
-          if (scriptFile != null && scriptFile.exists()) {
+          val folder = File(mpvConfStorageLocation)
+          val scriptFile = File(folder, scriptName)
+          
+          if (scriptFile.exists() && scriptFile.isFile) {
             // Copy to cache directory for sharing
             val cacheFile = File(context.cacheDir, scriptName)
-            context.contentResolver.openInputStream(scriptFile.uri)?.use { input ->
-              cacheFile.outputStream().use { output ->
-                input.copyTo(output)
-              }
-            }
+            scriptFile.copyTo(cacheFile, overwrite = true)
             
             // Get content URI using FileProvider
             val contentUri = FileProvider.getUriForFile(
@@ -200,6 +206,14 @@ data class LuaScriptEditorScreen(
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
               }
               context.startActivity(Intent.createChooser(shareIntent, "Share $scriptName"))
+            }
+          } else {
+            withContext(Dispatchers.Main) {
+              Toast.makeText(
+                context,
+                "Script file not found",
+                Toast.LENGTH_SHORT
+              ).show()
             }
           }
         } catch (e: Exception) {
@@ -222,9 +236,10 @@ data class LuaScriptEditorScreen(
       
       scope.launch(Dispatchers.IO) {
         try {
-          val tree = DocumentFile.fromTreeUri(context, mpvConfStorageLocation.toUri())
-          val scriptFile = tree?.findFile(scriptName)
-          if (scriptFile != null && scriptFile.exists()) {
+          val folder = File(mpvConfStorageLocation)
+          val scriptFile = File(folder, scriptName)
+          
+          if (scriptFile.exists() && scriptFile.isFile) {
             val deleted = scriptFile.delete()
             
             if (deleted) {
@@ -238,6 +253,15 @@ data class LuaScriptEditorScreen(
                 Toast.makeText(context, "$scriptName deleted", Toast.LENGTH_SHORT).show()
                 backStack.removeLastOrNull()
               }
+            } else {
+              withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Failed to delete file", Toast.LENGTH_SHORT).show()
+              }
+            }
+          } else {
+            withContext(Dispatchers.Main) {
+              Toast.makeText(context, "Script file not found", Toast.LENGTH_SHORT).show()
+              backStack.removeLastOrNull()
             }
           }
         } catch (e: Exception) {
