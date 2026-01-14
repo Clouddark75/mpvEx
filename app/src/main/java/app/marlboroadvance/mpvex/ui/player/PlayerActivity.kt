@@ -1622,38 +1622,38 @@ class PlayerActivity :
    */
   @OptIn(DelicateCoroutinesApi::class)
   private fun handleFileLoaded() {
-    // Extract fileName from intent only if not already set
-    // This preserves fileName set in onNewIntent or onCreate
-    if (fileName.isBlank()) {
-      fileName = getFileName(intent)
-      // Ensure fileName is not blank - use a fallback if necessary
+      // Extract fileName from intent only if not already set
       if (fileName.isBlank()) {
-        fileName = intent.data?.lastPathSegment ?: "Video"
+          fileName = getFileName(intent)
+          if (fileName.isBlank()) {
+              fileName = intent.data?.lastPathSegment ?: "Video"
+          }
+          mediaIdentifier = getMediaIdentifier(intent, fileName)
+      } else if (mediaIdentifier.isBlank()) {
+          mediaIdentifier = getMediaIdentifier(intent, fileName)
       }
-      mediaIdentifier = getMediaIdentifier(intent, fileName)
-    } else if (mediaIdentifier.isBlank()) {
-      // If fileName was already set, but mediaIdentifier is missing, set it for safety
-      mediaIdentifier = getMediaIdentifier(intent, fileName)
-    }
-
-    setIntentExtras(intent.extras)
-
-          lifecycleScope.launch(Dispatchers.IO) {
-        // Load playback state (will skip track restoration if preferred language configured)
-        val hasState = loadVideoPlaybackState(fileName)
-
-        // Apply track selection logic (defaults only apply when no saved state)
-        trackSelector.onFileLoaded(hasState)
-
-      // Apply default zoom only if there's no saved state
-      if (!hasState) {
-        withContext(Dispatchers.Main) {
-          val zoomPreference = playerPreferences.defaultVideoZoom.get()
-          MPVLib.setPropertyDouble("video-zoom", zoomPreference.toDouble())
-          viewModel.setVideoZoom(zoomPreference)
-        }
+  
+      setIntentExtras(intent.extras)
+  
+      lifecycleScope.launch(Dispatchers.IO) {
+          // Load playback state (but DON'T apply track selections)
+          val savedState = playbackStateRepository.getVideoDataByTitle(mediaIdentifier)
+          
+          // Apply non-track settings (delays, speed, zoom, position)
+          applyPlaybackState(savedState)
+          
+          // Let TrackSelector handle ALL track selection with the saved state
+          trackSelector.onFileLoaded(savedState)
+  
+          // Apply default zoom only if there's no saved state
+          if (savedState == null) {
+              withContext(Dispatchers.Main) {
+                  val zoomPreference = playerPreferences.defaultVideoZoom.get()
+                  MPVLib.setPropertyDouble("video-zoom", zoomPreference.toDouble())
+                  viewModel.setVideoZoom(zoomPreference)
+              }
+          }
       }
-    }
 
     // Save to recently played when video actually loads and plays
     GlobalScope.launch(Dispatchers.IO) {
