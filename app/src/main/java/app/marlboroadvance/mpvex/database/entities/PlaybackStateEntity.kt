@@ -2,6 +2,7 @@ package app.marlboroadvance.mpvex.database.entities
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import app.marlboroadvance.mpvex.database.entities.PlaybackStateEntity
 
 @Entity
 data class PlaybackStateEntity(
