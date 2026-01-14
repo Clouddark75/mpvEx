@@ -2108,65 +2108,48 @@ private fun applySubtitlePreferences() {
 
   /**
    * Applies saved playback state to MPV.
-   *
-   * Restores subtitle delay, audio delay, audio and track selections, and playback speed.
-   * Also restores saved time position if enabled.
-   *
-   * @param state The saved playback state entity
+   * 
+   * NOTE: This no longer sets audio/subtitle tracks - TrackSelector handles that.
    */
   private fun applyPlaybackState(state: PlaybackStateEntity?) {
-    if (state == null) return
+      if (state == null) return
 
-    val subDelay = state.subDelay / DELAY_DIVISOR
-    val audioDelay = state.audioDelay / DELAY_DIVISOR
+      val subDelay = state.subDelay / DELAY_DIVISOR
+      val audioDelay = state.audioDelay / DELAY_DIVISOR
 
-    // Restore external subtitles first
-    if (state.externalSubtitles.isNotBlank()) {
-      val externalSubUris = state.externalSubtitles.split("|").filter { it.isNotBlank() }
-      Log.d(TAG, "Restoring ${externalSubUris.size} external subtitle(s)")
-      
-      for (subUri in externalSubUris) {
-        runCatching {
-          MPVLib.command("sub-add", subUri, "cached")
-          Log.d(TAG, "Restored external subtitle: $subUri")
-        }.onFailure { e ->
-          Log.e(TAG, "Failed to restore external subtitle: $subUri", e)
-        }
+      // Restore external subtitles first
+      if (state.externalSubtitles.isNotBlank()) {
+          val externalSubUris = state.externalSubtitles.split("|").filter { it.isNotBlank() }
+          Log.d(TAG, "Restoring ${externalSubUris.size} external subtitle(s)")
+
+          for (subUri in externalSubUris) {
+              runCatching {
+                  MPVLib.command("sub-add", subUri, "cached")
+                  Log.d(TAG, "Restored external subtitle: $subUri")
+              }.onFailure { e ->
+                  Log.e(TAG, "Failed to restore external subtitle: $subUri", e)
+              }
+          }
+
+        viewModel.setExternalSubtitles(externalSubUris)
       }
-      
-      // Update ViewModel's tracked list
-      viewModel.setExternalSubtitles(externalSubUris)
-    }
 
-    // Always restore subtitle and audio tracks from saved state
-    // User's manual selection has highest priority
-    if (state.sid > 0) {
-      player.sid = state.sid
-      Log.d(TAG, "Restored primary subtitle track: ${state.sid} (user selection)")
-    }
+      // DO NOT restore tracks here - TrackSelector will handle it
+      // Just log what the saved state contains for debugging
+      Log.d(TAG, "Saved state contains: aid=${state.aid}, sid=${state.sid}, secondarySid=${state.secondarySid}")
 
-    if (state.secondarySid > 0) {
-      player.secondarySid = state.secondarySid
-      Log.d(TAG, "Restored secondary subtitle track: ${state.secondarySid} (user selection)")
-    }
+      MPVLib.setPropertyDouble("sub-delay", subDelay)
+      MPVLib.setPropertyDouble("speed", state.playbackSpeed)
+      MPVLib.setPropertyDouble("audio-delay", audioDelay)
+      MPVLib.setPropertyDouble("sub-speed", state.subSpeed)
 
-    if (state.aid > 0) {
-      player.aid = state.aid
-      Log.d(TAG, "Restored audio track: ${state.aid} (user selection)")
-    }
+      // Restore video zoom from saved state
+      MPVLib.setPropertyDouble("video-zoom", state.videoZoom.toDouble())
+      viewModel.setVideoZoom(state.videoZoom)
 
-    MPVLib.setPropertyDouble("sub-delay", subDelay)
-    MPVLib.setPropertyDouble("speed", state.playbackSpeed)
-    MPVLib.setPropertyDouble("audio-delay", audioDelay)
-    MPVLib.setPropertyDouble("sub-speed", state.subSpeed)
-
-    // Restore video zoom from saved state
-    MPVLib.setPropertyDouble("video-zoom", state.videoZoom.toDouble())
-    viewModel.setVideoZoom(state.videoZoom)
-
-    if (playerPreferences.savePositionOnQuit.get() && state.lastPosition != 0) {
-      MPVLib.setPropertyInt("time-pos", state.lastPosition)
-    }
+      if (playerPreferences.savePositionOnQuit.get() && state.lastPosition != 0) {
+          MPVLib.setPropertyInt("time-pos", state.lastPosition)
+      }
   }
 
   /**
