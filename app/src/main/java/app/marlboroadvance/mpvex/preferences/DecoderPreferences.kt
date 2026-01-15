@@ -31,13 +31,13 @@ class DecoderPreferences(
   val videoInterpolation = preferenceStore.getBoolean("video_interpolation", false)
   val videoSync = preferenceStore.getEnum("video_sync", VideoSync.Audio)
 
-  // Spatial scaler (upscaling) - Lanczos provides sharper quality than Bilinear
-  val videoScale = preferenceStore.getEnum("video_scale", Scaler.Lanczos)
+  // Spatial scaler (upscaling)
+  val videoScale = preferenceStore.getEnum("video_scale", Scaler.Bilinear)
   val videoScaleParam1 = preferenceStore.getString("video_scale_param1", "")
   val videoScaleParam2 = preferenceStore.getString("video_scale_param2", "")
 
-  // Spatial scaler (downscaling) - Mitchell provides good anti-aliasing
-  val videoDownscale = preferenceStore.getEnum("video_downscale", Scaler.Mitchell)
+  // Spatial scaler (downscaling)
+  val videoDownscale = preferenceStore.getEnum("video_downscale", Scaler.Bilinear)
   val videoDownscaleParam1 = preferenceStore.getString("video_downscale_param1", "")
   val videoDownscaleParam2 = preferenceStore.getString("video_downscale_param2", "")
 
@@ -45,4 +45,9 @@ class DecoderPreferences(
   val videoTscale = preferenceStore.getEnum("video_tscale", TemporalScaler.Linear)
   val videoTscaleParam1 = preferenceStore.getString("video_tscale_param1", "")
   val videoTscaleParam2 = preferenceStore.getString("video_tscale_param2", "")
+
+  // Anime4K Preferences
+  val enableAnime4K = preferenceStore.getBoolean("enable_anime4k", false)
+  val anime4kMode = preferenceStore.getString("anime4k_mode", "OFF")
+  val anime4kQuality = preferenceStore.getString("anime4k_quality", "FAST")
 }
