@@ -79,17 +79,21 @@ import my.nanihadesuka.compose.ScrollbarSettings
 import org.koin.compose.koinInject
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.animateFloatingActionButton
+import app.marlboroadvance.mpvex.ui.browser.fab.FabScrollHelper
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 
 /**
  * Playlist detail screen showing videos in a playlist.
- * 
+ *
  * **M3U Playlist Behavior:**
- * M3U playlists (streaming URLs) are handled differently to prevent ANR issues:
- * - Each stream is played individually (no playlist navigation in PlayerActivity)
- * - No next/previous buttons - each stream URL is opened standalone
- * - This prevents loading thousands of URLs into memory at once
- * - Users can manually select and play different streams from the list
- * 
+ * M3U playlists (streaming URLs) now support full playlist navigation:
+ * - Next/previous buttons available during playback
+ * - Playlist continuation and shuffle modes
+ * - Full playlist loaded into PlayerActivity
+ * - Uses windowed loading for large playlists to prevent ANR
+ *
  * **Regular Playlist Behavior:**
  * Local file playlists support full playlist navigation:
  * - Next/previous buttons available during playback
@@ -98,7 +102,7 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
  */
 @Serializable
 data class PlaylistDetailScreen(val playlistId: Int) : Screen {
-  @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
+  @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class, ExperimentalMaterial3ExpressiveApi::class)
   @Composable
   override fun Content() {
     val context = LocalContext.current
@@ -152,7 +156,7 @@ data class PlaylistDetailScreen(val playlistId: Int) : Screen {
       rememberSelectionManager(
         items = filteredVideoItems,
         getId = { it.playlistItem.id },
-        onDeleteItems = { itemsToDelete ->
+        onDeleteItems = { itemsToDelete, _ ->
           // Remove all items in a single coroutine to avoid concurrent deletion race conditions
           coroutineScope.launch {
             val videosToRemove = itemsToDelete.map { it.video }
@@ -165,6 +169,7 @@ data class PlaylistDetailScreen(val playlistId: Int) : Screen {
 
     // UI State
     val listState = rememberLazyListState()
+    val isFabVisible = remember { mutableStateOf(true) }
     val deleteDialogOpen = rememberSaveable { mutableStateOf(false) }
     val mediaInfoDialogOpen = rememberSaveable { mutableStateOf(false) }
     val selectedVideo = remember { mutableStateOf<Video?>(null) }
@@ -188,6 +193,14 @@ data class PlaylistDetailScreen(val playlistId: Int) : Screen {
         selectionManager.isInSelectionMode -> selectionManager.clear()
       }
     }
+
+    FabScrollHelper.trackScrollForFabVisibility(
+      listState = listState,
+      gridState = null,
+      isFabVisible = isFabVisible,
+      expanded = false,
+      onExpandedChange = {}
+    )
 
     Scaffold(
       topBar = {
@@ -331,81 +344,6 @@ data class PlaylistDetailScreen(val playlistId: Int) : Screen {
                     }
                     Spacer(modifier = Modifier.width(4.dp))
                   }
-
-                  // Play button
-                  Button(
-                    onClick = {
-                      if (playlist?.isM3uPlaylist == true) {
-                        // M3U playlists: Play only the first/most recent stream (no playlist navigation)
-                        val mostRecentlyPlayedItem = videoItems
-                          .filter { it.playlistItem.lastPlayedAt > 0 }
-                          .maxByOrNull { it.playlistItem.lastPlayedAt }
-
-                        val itemToPlay = mostRecentlyPlayedItem ?: videoItems.firstOrNull()
-                        
-                        if (itemToPlay != null) {
-                          coroutineScope.launch {
-                            viewModel.updatePlayHistory(itemToPlay.video.path)
-                          }
-                          
-                          // Play single stream URL without playlist
-                          MediaUtils.playFile(itemToPlay.video, context, "m3u_playlist")
-                        }
-                      } else {
-                        // Regular playlists: Play with full playlist navigation
-                        val mostRecentlyPlayedItem = videoItems
-                          .filter { it.playlistItem.lastPlayedAt > 0 }
-                          .maxByOrNull { it.playlistItem.lastPlayedAt }
-
-                        val startIndex = if (mostRecentlyPlayedItem != null) {
-                          videoItems.indexOfFirst { it.playlistItem.id == mostRecentlyPlayedItem.playlistItem.id }
-                        } else {
-                          0
-                        }
-
-                        if (videos.isNotEmpty() && startIndex >= 0) {
-                          coroutineScope.launch {
-                            viewModel.updatePlayHistory(videos[startIndex].path)
-                          }
-                        }
-
-                        val videoUris = videos.map { it.uri }
-                        if (videoUris.isNotEmpty() && startIndex >= 0) {
-                          val intent = Intent(context, PlayerActivity::class.java).apply {
-                            action = Intent.ACTION_VIEW
-                            data = videoUris[startIndex]
-                            putExtra("playlist_index", startIndex)
-                            putExtra("launch_source", "playlist")
-                            putExtra("playlist_id", playlistId)
-                            putExtra("title", videos[startIndex].displayName)
-                          }
-                          context.startActivity(intent)
-                        }
-                      }
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                      containerColor = MaterialTheme.colorScheme.primaryContainer,
-                      contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    ),
-                    shape = MaterialTheme.shapes.large,
-                    modifier = Modifier.padding(end = 20.dp),
-                  ) {
-                    Row(
-                      verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                      Icon(
-                        imageVector = Icons.Filled.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                      )
-                      Spacer(modifier = Modifier.width(4.dp))
-                      Text(
-                        text = "Play",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                      )
-                    }
-                  }
                 }
               }
             }
@@ -413,7 +351,67 @@ data class PlaylistDetailScreen(val playlistId: Int) : Screen {
         )
         }
       },
-      floatingActionButton = { },
+      floatingActionButton = {
+        if (videoItems.isNotEmpty()) {
+          FloatingActionButton(
+            modifier = Modifier.animateFloatingActionButton(
+              visible = isFabVisible.value,
+              alignment = Alignment.BottomEnd,
+            ),
+            onClick = {
+              if (playlist?.isM3uPlaylist == true) {
+                // M3U playlists: Play only the first/most recent stream (no playlist navigation)
+                val mostRecentlyPlayedItem = videoItems
+                  .filter { it.playlistItem.lastPlayedAt > 0 }
+                  .maxByOrNull { it.playlistItem.lastPlayedAt }
+
+                val itemToPlay = mostRecentlyPlayedItem ?: videoItems.firstOrNull()
+
+                if (itemToPlay != null) {
+                  coroutineScope.launch {
+                    viewModel.updatePlayHistory(itemToPlay.video.path)
+                  }
+
+                  // Play single stream URL without playlist
+                  MediaUtils.playFile(itemToPlay.video, context, "m3u_playlist")
+                }
+              } else {
+                // Regular playlists: Play with full playlist navigation
+                val mostRecentlyPlayedItem = videoItems
+                  .filter { it.playlistItem.lastPlayedAt > 0 }
+                  .maxByOrNull { it.playlistItem.lastPlayedAt }
+
+                val startIndex = if (mostRecentlyPlayedItem != null) {
+                  videoItems.indexOfFirst { it.playlistItem.id == mostRecentlyPlayedItem.playlistItem.id }
+                } else {
+                  0
+                }
+
+                if (videos.isNotEmpty() && startIndex >= 0) {
+                  coroutineScope.launch {
+                    viewModel.updatePlayHistory(videos[startIndex].path)
+                  }
+                }
+
+                val videoUris = videos.map { it.uri }
+                if (videoUris.isNotEmpty() && startIndex >= 0) {
+                  val intent = Intent(context, PlayerActivity::class.java).apply {
+                    action = Intent.ACTION_VIEW
+                    data = videoUris[startIndex]
+                    putExtra("playlist_index", startIndex)
+                    putExtra("launch_source", "playlist")
+                    putExtra("playlist_id", playlistId)
+                    putExtra("title", videos[startIndex].displayName)
+                  }
+                  context.startActivity(intent)
+                }
+              }
+            }
+          ) {
+            Icon(Icons.Filled.PlayArrow, contentDescription = "Play playlist", modifier = Modifier.size(32.dp))
+          }
+        }
+      },
     ) { padding ->
       // Show "no results" message when searching with no results
       if (isSearching && filteredVideoItems.isEmpty() && searchQuery.isNotBlank()) {
@@ -485,28 +483,23 @@ data class PlaylistDetailScreen(val playlistId: Int) : Screen {
                   viewModel.updatePlayHistory(item.video.path)
                 }
 
-                if (playlist?.isM3uPlaylist == true) {
-                  // M3U playlists: Play only the clicked stream (no playlist navigation)
-                  MediaUtils.playFile(item.video, context, "m3u_playlist")
-                } else {
-                  // Regular playlists: Play with full playlist navigation
-                  val startIndex = videoItems.indexOfFirst { it.playlistItem.id == item.playlistItem.id }
-                  if (startIndex >= 0) {
-                    if (videos.size == 1) {
-                      MediaUtils.playFile(item.video, context, "playlist_detail")
-                    } else {
-                      val intent = Intent(Intent.ACTION_VIEW, videos[startIndex].uri)
-                      intent.setClass(context, PlayerActivity::class.java)
-                      intent.putExtra("internal_launch", true)
-                      intent.putExtra("playlist_index", startIndex)
-                      intent.putExtra("launch_source", "playlist")
-                      intent.putExtra("playlist_id", playlistId)
-                      intent.putExtra("title", videos[startIndex].displayName)
-                      context.startActivity(intent)
-                    }
-                  } else {
+                // Play with full playlist navigation (both M3U and regular playlists)
+                val startIndex = videoItems.indexOfFirst { it.playlistItem.id == item.playlistItem.id }
+                if (startIndex >= 0) {
+                  if (videos.size == 1) {
                     MediaUtils.playFile(item.video, context, "playlist_detail")
+                  } else {
+                    val intent = Intent(Intent.ACTION_VIEW, videos[startIndex].uri)
+                    intent.setClass(context, PlayerActivity::class.java)
+                    intent.putExtra("internal_launch", true)
+                    intent.putExtra("playlist_index", startIndex)
+                    intent.putExtra("launch_source", "playlist")
+                    intent.putExtra("playlist_id", playlistId)
+                    intent.putExtra("title", videos[startIndex].displayName)
+                    context.startActivity(intent)
                   }
+                } else {
+                  MediaUtils.playFile(item.video, context, "playlist_detail")
                 }
               }
             },
