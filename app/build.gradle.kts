@@ -217,3 +217,9 @@ fun runCommand(command: String): String? =
   } catch (e: Exception) {
     null
   }
+
+tasks.register("printVersionName") {
+  doLast {
+    println(android.defaultConfig.versionName)
+  }
+}
