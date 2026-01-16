@@ -253,6 +253,12 @@ class PlayerActivity :
    */
   private lateinit var pipHelper: MPVPipHelper
 
+  /**
+ * Flag que indica si el usuario tiene un mpv.conf personalizado con opciones de subtítulos.
+ * Si es true, NO aplicamos las preferencias de la app al cargar videos para respetar mpv.conf.
+ * Los cambios manuales desde la UI siempre funcionarán normalmente.
+ */
+  private var hasCustomMpvConfig = false
   private var isReady = false // Single flag: true when video loaded and ready
   private var isUserFinishing = false
   private var noisyReceiverRegistered = false
