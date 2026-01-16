@@ -802,6 +802,38 @@ class PlayerViewModel(
     }
   }
 
+  // ==================== Chapter Navigation (Up/Down keys) ====================
+
+  fun handleChapterNext() {
+    viewModelScope.launch(Dispatchers.IO) {
+      // Navegar al siguiente capítulo, o avanzar si no hay capítulos
+      MPVLib.command("add", "chapter", "1")
+
+      // Mostrar información del capítulo
+      val chapterName = MPVLib.getPropertyString("chapter-metadata/by-key/title")
+      withContext(Dispatchers.Main) {
+        if (!chapterName.isNullOrBlank()) {
+          playerUpdate.value = PlayerUpdates.ShowText("Chapter: $chapterName")
+        }
+      }
+    }
+  }
+
+  fun handleChapterPrevious() {
+    viewModelScope.launch(Dispatchers.IO) {
+      // Navegar al capítulo anterior, o retroceder si no hay capítulos
+      MPVLib.command("add", "chapter", "-1")
+
+      // Mostrar información del capítulo
+      val chapterName = MPVLib.getPropertyString("chapter-metadata/by-key/title")
+      withContext(Dispatchers.Main) {
+        if (!chapterName.isNullOrBlank()) {
+          playerUpdate.value = PlayerUpdates.ShowText("Chapter: $chapterName")
+        }
+      }
+    }
+  }
+
   // ==================== Video Zoom ====================
 
   fun setVideoZoom(zoom: Float) {
