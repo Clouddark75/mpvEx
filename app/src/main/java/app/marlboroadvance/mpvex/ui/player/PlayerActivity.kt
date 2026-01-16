@@ -895,30 +895,43 @@ class PlayerActivity :
   /**
    * Copies or creates the MPV configuration files.
    */
-  private fun copyMPVConfigFiles() {
-    val applicationPath = filesDir.path
-    runCatching {
-      // Create mpv.conf
-      File("$applicationPath/mpv.conf").apply {
-        if (!exists()) createNewFile()
-        val content = advancedPreferences.mpvConf.get()
-        if (content.isNotBlank()) {
-          writeText(content)
-        } else {
-          // Default optimized config for fast stream loading
-          writeText(getDefaultMpvConfig())
-        }
-      }
+    private fun copyMPVConfigFiles() {
+      val applicationPath = filesDir.path
+      runCatching {
+          // Create mpv.conf
+          File("$applicationPath/mpv.conf").apply {
+              if (!exists()) createNewFile()
+              val content = advancedPreferences.mpvConf.get()
+              if (content.isNotBlank()) {
+                  writeText(content)
 
-      // Create input.conf
-      File("$applicationPath/input.conf").apply {
-        if (!exists()) createNewFile()
-        val content = advancedPreferences.inputConf.get()
-        if (content.isNotBlank()) writeText(content)
+                  // Detect if user configured subtitle options in mpv.conf
+                  hasCustomMpvConfig = content.contains(Regex(
+                      "sub-ass-override|sub-font|sub-color|sub-border|sub-scale|sub-pos|" +
+                      "sub-bold|sub-italic|sub-justify|secondary-sub",
+                      RegexOption.IGNORE_CASE
+                  ))
+
+                  if (hasCustomMpvConfig) {
+                      Log.d(TAG, "Custom mpv.conf detected with subtitle settings - " +
+                              "app preferences will be skipped on video load")
+                  }
+              } else {
+                  // Default optimized config for fast stream loading
+                  writeText(getDefaultMpvConfig())
+                  hasCustomMpvConfig = false
+              }
+          }
+
+          // Create input.conf
+          File("$applicationPath/input.conf").apply {
+              if (!exists()) createNewFile()
+              val content = advancedPreferences.inputConf.get()
+              if (content.isNotBlank()) writeText(content)
+          }
+      }.onFailure { e ->
+          Log.e(TAG, "Error creating config files", e)
       }
-    }.onFailure { e ->
-      Log.e(TAG, "Error creating config files", e)
-    }
   }
 
   /**
@@ -1884,40 +1897,59 @@ class PlayerActivity :
   }
 
   /**
-   * Applies all saved subtitle preferences when a file is loaded.
-   * This ensures subtitle customizations (font, colors, position, etc.) persist across videos.
+   * Applies saved subtitle preferences when a file is loaded.
+   * 
+   * IMPORTANTE: Si el usuario tiene un mpv.conf personalizado con opciones de subtítulos,
+   * esta función NO se ejecuta para respetar su configuración.
+   * 
+   * Los cambios manuales desde la UI (paneles de control) siempre se aplican directamente
+   * mediante setProperty, así que funcionarán independientemente de esta función.
    */
   private fun applySubtitlePreferences() {
-    // Typography settings
-    MPVLib.setPropertyString("sub-font", subtitlesPreferences.font.get())
-    MPVLib.setPropertyString("secondary-sub-font", subtitlesPreferences.font.get())
-    MPVLib.setPropertyInt("sub-font-size", subtitlesPreferences.fontSize.get())
-    MPVLib.setPropertyBoolean("sub-bold", subtitlesPreferences.bold.get())
-    MPVLib.setPropertyBoolean("sub-italic", subtitlesPreferences.italic.get())
-    MPVLib.setPropertyString("sub-justify", subtitlesPreferences.justification.get().value)
-    MPVLib.setPropertyString("sub-border-style", subtitlesPreferences.borderStyle.get().value)
-    MPVLib.setPropertyInt("sub-outline-size", subtitlesPreferences.borderSize.get())
-    MPVLib.setPropertyInt("sub-shadow-offset", subtitlesPreferences.shadowOffset.get())
+      // Si el usuario tiene mpv.conf personalizado, no aplicar preferencias de la app
+      if (hasCustomMpvConfig) {
+          Log.d(TAG, "Skipping app subtitle preferences - using mpv.conf settings")
+          return
+      }
 
-    // Color settings
-    MPVLib.setPropertyString("sub-color", subtitlesPreferences.textColor.get().toColorHexString())
-    MPVLib.setPropertyString("sub-border-color", subtitlesPreferences.borderColor.get().toColorHexString())
-    MPVLib.setPropertyString("sub-back-color", subtitlesPreferences.backgroundColor.get().toColorHexString())
+      // Aplicar preferencias normalmente (solo si NO hay mpv.conf personalizado)
 
-    // Miscellaneous settings
-    val overrideAssSubs = subtitlesPreferences.overrideAssSubs.get()
-    MPVLib.setPropertyString("sub-ass-override", if (overrideAssSubs) "force" else "scale")
-    MPVLib.setPropertyString("secondary-sub-ass-override", if (overrideAssSubs) "force" else "scale")
-    
-    val scaleByWindow = subtitlesPreferences.scaleByWindow.get()
-    val scaleValue = if (scaleByWindow) "yes" else "no"
-    MPVLib.setPropertyString("sub-scale-by-window", scaleValue)
-    MPVLib.setPropertyString("sub-use-margins", scaleValue)
+      // Typography settings
+      val font = subtitlesPreferences.font.get()
+      if (font.isNotBlank()) {
+          MPVLib.setPropertyString("sub-font", font)
+          MPVLib.setPropertyString("secondary-sub-font", font)
+      }
 
-    MPVLib.setPropertyFloat("sub-scale", subtitlesPreferences.subScale.get())
-    MPVLib.setPropertyInt("sub-pos", subtitlesPreferences.subPos.get())
+      MPVLib.setPropertyInt("sub-font-size", subtitlesPreferences.fontSize.get())
+      MPVLib.setPropertyBoolean("sub-bold", subtitlesPreferences.bold.get())
+      MPVLib.setPropertyBoolean("sub-italic", subtitlesPreferences.italic.get())
+      MPVLib.setPropertyString("sub-justify", subtitlesPreferences.justification.get().value)
+      MPVLib.setPropertyString("sub-border-style", subtitlesPreferences.borderStyle.get().value)
+      MPVLib.setPropertyInt("sub-border-size", subtitlesPreferences.borderSize.get())
+      MPVLib.setPropertyInt("sub-shadow-offset", subtitlesPreferences.shadowOffset.get())
 
-    Log.d(TAG, "Applied subtitle preferences")
+      // Color settings
+      MPVLib.setPropertyString("sub-color", subtitlesPreferences.textColor.get().toColorHexString())
+      MPVLib.setPropertyString("sub-border-color", subtitlesPreferences.borderColor.get().toColorHexString())
+      MPVLib.setPropertyString("sub-back-color", subtitlesPreferences.backgroundColor.get().toColorHexString())
+
+      // Miscellaneous settings
+      val overrideAssSubs = subtitlesPreferences.overrideAssSubs.get()
+      MPVLib.setPropertyString("sub-ass-override", if (overrideAssSubs) "force" else "scale")
+      MPVLib.setPropertyString("secondary-sub-ass-override", if (overrideAssSubs) "force" else "scale")
+      MPVLib.setPropertyString("sub-ass-force-margins", "yes")
+      MPVLib.setPropertyString("secondary-sub-ass-force-margins", "yes")
+
+      val scaleByWindow = subtitlesPreferences.scaleByWindow.get()
+      val scaleValue = if (scaleByWindow) "yes" else "no"
+      MPVLib.setPropertyString("sub-scale-by-window", scaleValue)
+      MPVLib.setPropertyString("sub-use-margins", scaleValue)
+
+      MPVLib.setPropertyFloat("sub-scale", subtitlesPreferences.subScale.get())
+      MPVLib.setPropertyInt("sub-pos", subtitlesPreferences.subPos.get())
+
+      Log.d(TAG, "Applied subtitle preferences from app settings")
   }
 
   /**
