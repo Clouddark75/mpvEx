@@ -37,8 +37,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.net.toUri
-import androidx.documentfile.provider.DocumentFile
 import app.marlboroadvance.mpvex.preferences.AdvancedPreferences
 import app.marlboroadvance.mpvex.preferences.preference.collectAsState
 import app.marlboroadvance.mpvex.presentation.Screen
@@ -49,9 +47,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import org.koin.compose.koinInject
 import java.io.File
-import kotlin.io.path.deleteIfExists
-import kotlin.io.path.outputStream
-import kotlin.io.path.readLines
 
 @Serializable
 data class ConfigEditorScreen(
@@ -83,25 +78,32 @@ data class ConfigEditorScreen(
     
     var configText by remember { mutableStateOf(initialValue) }
     var hasUnsavedChanges by remember { mutableStateOf(false) }
-    val mpvConfStorageLocation by preferences.mpvConfStorageUri.collectAsState()
+    val mpvConfStorageLocation by preferences.mpvConfStorageLocation.collectAsState()
     
     // Load config from storage location if available
     LaunchedEffect(mpvConfStorageLocation) {
       if (mpvConfStorageLocation.isBlank()) return@LaunchedEffect
       withContext(Dispatchers.IO) {
-        val tempFile = kotlin.io.path.createTempFile()
         runCatching {
-          val tree = DocumentFile.fromTreeUri(context, mpvConfStorageLocation.toUri())
-          val configFile = tree?.findFile(fileName)
-          if (configFile != null && configFile.exists()) {
-            context.contentResolver.openInputStream(configFile.uri)?.copyTo(tempFile.outputStream())
-            val content = tempFile.readLines().joinToString("\n")
+          val folder = File(mpvConfStorageLocation)
+          if (!folder.exists() || !folder.isDirectory) return@withContext
+          
+          val configFile = File(folder, fileName)
+          if (configFile.exists() && configFile.isFile) {
+            val content = configFile.readText()
             withContext(Dispatchers.Main) {
               configText = content
             }
           }
+        }.onFailure { error ->
+          withContext(Dispatchers.Main) {
+            Toast.makeText(
+              context,
+              "Error loading $fileName: ${error.message}",
+              Toast.LENGTH_SHORT
+            ).show()
+          }
         }
-        tempFile.deleteIfExists()
       }
     }
     
@@ -119,32 +121,36 @@ data class ConfigEditorScreen(
           
           // Save to external storage location if set
           if (mpvConfStorageLocation.isNotBlank()) {
-            val tree = DocumentFile.fromTreeUri(context, mpvConfStorageLocation.toUri())
-            if (tree == null) {
+            val folder = File(mpvConfStorageLocation)
+            
+            // Create folder if it doesn't exist
+            if (!folder.exists()) {
+              if (!folder.mkdirs()) {
+                withContext(Dispatchers.Main) {
+                  Toast.makeText(
+                    context,
+                    "Failed to create folder: $mpvConfStorageLocation",
+                    Toast.LENGTH_LONG
+                  ).show()
+                }
+                return@launch
+              }
+            }
+            
+            if (!folder.isDirectory) {
               withContext(Dispatchers.Main) {
-                Toast.makeText(context, "No storage location set", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                  context,
+                  "Path is not a directory: $mpvConfStorageLocation",
+                  Toast.LENGTH_LONG
+                ).show()
               }
               return@launch
             }
-
-            val existing = tree.findFile(fileName)
-            val confFile = existing ?: tree.createFile("text/plain", fileName)?.also { it.renameTo(fileName) }
-            val uri = confFile?.uri ?: run {
-              withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Failed to create file", Toast.LENGTH_LONG).show()
-              }
-              return@launch
-            }
-
-            context.contentResolver.openOutputStream(uri, "wt")?.use { out ->
-              out.write(configText.toByteArray())
-              out.flush()
-            } ?: run {
-              withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Failed to open output stream", Toast.LENGTH_LONG).show()
-              }
-              return@launch
-            }
+            
+            // Write config file
+            val configFile = File(folder, fileName)
+            configFile.writeText(configText)
           }
           
           withContext(Dispatchers.Main) {
