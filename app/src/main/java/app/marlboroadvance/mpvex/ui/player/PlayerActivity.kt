@@ -60,6 +60,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.android.ext.android.inject
 import java.io.File
+import java.net.URLDecoder
 
 /**
  * Main player activity that handles video playback using the MPV library.
@@ -91,6 +92,39 @@ class PlayerActivity :
     PlayerViewModelProviderFactory(this)
   }
 
+   /**
+ * Decodes the filename portion of localhost URLs to handle URL-encoded characters.
+ */ 
+   private fun decodeLocalhostUrl(url: String): String {
+      // Only process localhost/127.0.0.1 URLs
+      if (!url.startsWith("http://127.0.0.1") && !url.startsWith("http://localhost")) {
+          return url
+      }
+
+      return try {
+          val lastSlash = url.lastIndexOf('/')
+          if (lastSlash == -1 || lastSlash == url.length - 1) {
+              // No filename part to decode
+              url
+          } else {
+              // Split into path + filename, decode only the filename
+              val pathPart = url.substring(0, lastSlash + 1)
+              val filename = url.substring(lastSlash + 1)
+              val decodedFilename = URLDecoder.decode(filename, "UTF-8")
+
+              // Re-encode problematic characters that break URLs
+              val safeFilename = decodedFilename
+                  .replace("#", "%23")  // # must stay encoded as it's a fragment identifier
+                  .replace("?", "%3F")  // ? starts query parameters
+
+              pathPart + safeFilename
+          }
+      } catch (e: Exception) {
+          Log.w(TAG, "Failed to decode localhost URL filename: $url", e)
+          url
+      }
+  }
+   
   /**
    * Binding for the player layout.
    */
@@ -1146,23 +1180,30 @@ class PlayerActivity :
     }
   }
 
-  /**
-   * Parses the file path from the intent.
-   *
-   * This method checks the intent action and data to determine the file path.
-   * It supports the following actions:
-   * - ACTION_VIEW: The file path is contained in the intent data.
-   * - ACTION_SEND: The file path is contained in the intent extras.
-   *
-   * @param intent The intent containing the file URI
-   * @return The resolved file path, or null if not found
-   */
-  private fun parsePathFromIntent(intent: Intent): String? =
-    when (intent.action) {
-      Intent.ACTION_VIEW -> intent.data?.resolveUri(this)
-      Intent.ACTION_SEND -> parsePathFromSendIntent(intent)
-      else -> intent.getStringExtra("uri")
-    }
+    /**
+ * Parses the file path from the intent, handling URL decoding for localhost URLs.
+ *
+ * This method checks the intent action and data to determine the file path.
+ * It supports the following actions:
+ * - ACTION_VIEW: The file path is contained in the intent data.
+ * - ACTION_SEND: The file path is contained in the intent extras.
+ *
+ * For localhost URLs (network files served through local proxy), it decodes
+ * the filename portion to handle special characters properly.
+ *
+ * @param intent The intent containing the file URI
+ * @return The resolved file path with decoded filename if applicable, or null if not found
+ */
+  private fun parsePathFromIntent(intent: Intent): String? {
+      val filepath = when (intent.action) {
+          Intent.ACTION_VIEW -> intent.data?.resolveUri(this)
+          Intent.ACTION_SEND -> parsePathFromSendIntent(intent)
+          else -> intent.getStringExtra("uri")
+      }
+
+      // Decode localhost URLs to handle special characters in filenames
+      return filepath?.let { decodeLocalhostUrl(it) }
+  }
 
   /**
    * Parses the file path from a SEND intent.
