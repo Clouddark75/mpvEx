@@ -1449,7 +1449,10 @@ class PlayerActivity :
           playlistIndex < playlist.size - 1
         }
 
-        if (hasNextItem) {
+        // Check if autoplay next video is enabled
+        val autoplayEnabled = playerPreferences.autoplayNextVideo.get()
+
+        if (hasNextItem && autoplayEnabled) {
           // Play next item in playlist
           playNext()
         } else if (viewModel.shouldRepeatPlaylist()) {
@@ -1466,9 +1469,10 @@ class PlayerActivity :
             loadPlaylistItem(0)
           }
         } else if (playerPreferences.closeAfterReachingEndOfVideo.get()) {
-          // No repeat, end of playlist: close if setting is enabled
+          // No autoplay or no next item, end of playlist: close if setting is enabled
           finishAndRemoveTask()
         }
+        // If autoplay is off and closeAfterReachingEndOfVideo is off, just stay on current video
       } else {
         // Single video playback (no playlist)
         if (playerPreferences.closeAfterReachingEndOfVideo.get()) {
@@ -1716,11 +1720,10 @@ class PlayerActivity :
           return@launch
         }
 
-        // Skip fetching for playlist items - they already have correct titles from playlist metadata
-        val launchSource = intent.getStringExtra("launch_source")
-        if (intent.hasExtra("title") && launchSource != null &&
-          (launchSource.contains("playlist") || launchSource == "m3u_playlist")) {
-          Log.d(TAG, "Skipping title fetch for playlist item with custom title: $fileName")
+        // Skip fetching if title was provided in intent extras (e.g. from Jellyfin or other external launchers)
+        // This prevents overwriting the correct title with a generic filename from the URL (like "stream")
+        if (intent.hasExtra("title") || intent.hasExtra("filename")) {
+          Log.d(TAG, "Skipping title fetch because title was explicitly provided in intent: $fileName")
           return@launch
         }
 
@@ -1861,7 +1864,7 @@ class PlayerActivity :
     val overrideAssSubs = subtitlesPreferences.overrideAssSubs.get()
     MPVLib.setPropertyString("sub-ass-override", if (overrideAssSubs) "force" else "scale")
     MPVLib.setPropertyString("secondary-sub-ass-override", if (overrideAssSubs) "force" else "scale")
-    
+
     val scaleByWindow = subtitlesPreferences.scaleByWindow.get()
     val scaleValue = if (scaleByWindow) "yes" else "no"
     MPVLib.setPropertyString("sub-scale-by-window", scaleValue)
@@ -2182,7 +2185,7 @@ class PlayerActivity :
 
     // Check if this intent has playlist information
     val hasPlaylistExtras = intent.hasExtra("playlist_id") ||
-                           intent.hasExtra("playlist")
+      intent.hasExtra("playlist")
 
     // Load playlist from intent extras first (fast path)
     val playlistFromIntent = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
