@@ -1,4 +1,4 @@
-﻿package app.marlboroadvance.mpvex.ui.player
+package app.marlboroadvance.mpvex.ui.player
 
 import android.content.BroadcastReceiver
 import android.content.ComponentName
@@ -60,7 +60,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.android.ext.android.inject
 import java.io.File
-import java.net.URLDecoder
 
 /**
  * Main player activity that handles video playback using the MPV library.
@@ -92,39 +91,6 @@ class PlayerActivity :
     PlayerViewModelProviderFactory(this)
   }
 
-   /**
- * Decodes the filename portion of localhost URLs to handle URL-encoded characters.
- */ 
-   private fun decodeLocalhostUrl(url: String): String {
-      // Only process localhost/127.0.0.1 URLs
-      if (!url.startsWith("http://127.0.0.1") && !url.startsWith("http://localhost")) {
-          return url
-      }
-
-      return try {
-          val lastSlash = url.lastIndexOf('/')
-          if (lastSlash == -1 || lastSlash == url.length - 1) {
-              // No filename part to decode
-              url
-          } else {
-              // Split into path + filename, decode only the filename
-              val pathPart = url.substring(0, lastSlash + 1)
-              val filename = url.substring(lastSlash + 1)
-              val decodedFilename = URLDecoder.decode(filename, "UTF-8")
-
-              // Re-encode problematic characters that break URLs
-              val safeFilename = decodedFilename
-                  .replace("#", "%23")  // # must stay encoded as it's a fragment identifier
-                  .replace("?", "%3F")  // ? starts query parameters
-
-              pathPart + safeFilename
-          }
-      } catch (e: Exception) {
-          Log.w(TAG, "Failed to decode localhost URL filename: $url", e)
-          url
-      }
-  }
-   
   /**
    * Binding for the player layout.
    */
@@ -253,12 +219,6 @@ class PlayerActivity :
    */
   private lateinit var pipHelper: MPVPipHelper
 
-  /**
- * Flag que indica si el usuario tiene un mpv.conf personalizado con opciones de subtítulos.
- * Si es true, NO aplicamos las preferencias de la app al cargar videos para respetar mpv.conf.
- * Los cambios manuales desde la UI siempre funcionarán normalmente.
- */
-  private var hasCustomMpvConfig = false
   private var isReady = false // Single flag: true when video loaded and ready
   private var isUserFinishing = false
   private var noisyReceiverRegistered = false
@@ -895,43 +855,30 @@ class PlayerActivity :
   /**
    * Copies or creates the MPV configuration files.
    */
-    private fun copyMPVConfigFiles() {
-      val applicationPath = filesDir.path
-      runCatching {
-          // Create mpv.conf
-          File("$applicationPath/mpv.conf").apply {
-              if (!exists()) createNewFile()
-              val content = advancedPreferences.mpvConf.get()
-              if (content.isNotBlank()) {
-                  writeText(content)
-
-                  // Detect if user configured subtitle options in mpv.conf
-                  hasCustomMpvConfig = content.contains(Regex(
-                      "sub-ass-override|sub-font|sub-color|sub-border|sub-scale|sub-pos|" +
-                      "sub-bold|sub-italic|sub-justify|secondary-sub",
-                      RegexOption.IGNORE_CASE
-                  ))
-
-                  if (hasCustomMpvConfig) {
-                      Log.d(TAG, "Custom mpv.conf detected with subtitle settings - " +
-                              "app preferences will be skipped on video load")
-                  }
-              } else {
-                  // Default optimized config for fast stream loading
-                  writeText(getDefaultMpvConfig())
-                  hasCustomMpvConfig = false
-              }
-          }
-
-          // Create input.conf
-          File("$applicationPath/input.conf").apply {
-              if (!exists()) createNewFile()
-              val content = advancedPreferences.inputConf.get()
-              if (content.isNotBlank()) writeText(content)
-          }
-      }.onFailure { e ->
-          Log.e(TAG, "Error creating config files", e)
+  private fun copyMPVConfigFiles() {
+    val applicationPath = filesDir.path
+    runCatching {
+      // Create mpv.conf
+      File("$applicationPath/mpv.conf").apply {
+        if (!exists()) createNewFile()
+        val content = advancedPreferences.mpvConf.get()
+        if (content.isNotBlank()) {
+          writeText(content)
+        } else {
+          // Default optimized config for fast stream loading
+          writeText(getDefaultMpvConfig())
+        }
       }
+
+      // Create input.conf
+      File("$applicationPath/input.conf").apply {
+        if (!exists()) createNewFile()
+        val content = advancedPreferences.inputConf.get()
+        if (content.isNotBlank()) writeText(content)
+      }
+    }.onFailure { e ->
+      Log.e(TAG, "Error creating config files", e)
+    }
   }
 
   /**
@@ -952,6 +899,7 @@ class PlayerActivity :
           Log.e(TAG, "Failed to create scripts directory")
           return@runCatching
         }
+
       // Clean existing scripts first
       fileManager.deleteContent(scriptsDir)
       Log.d(TAG, "Cleaned scripts directory")
@@ -959,29 +907,28 @@ class PlayerActivity :
       // Copy user-selected Lua scripts if enabled
       if (advancedPreferences.enableLuaScripts.get()) {
         val selectedScripts = advancedPreferences.selectedLuaScripts.get()
-        val mpvConfStorageLocation = advancedPreferences.mpvConfStorageLocation.get()
+        val mpvConfStorageUri = advancedPreferences.mpvConfStorageUri.get()
 
         Log.d(TAG, "Lua scripts enabled: ${selectedScripts.size} script(s) selected: ${selectedScripts.joinToString()}")
- 
+
         if (selectedScripts.isEmpty()) {
           Log.d(TAG, "No Lua scripts selected, skipping copy")
           return@runCatching
         }
 
-        if (mpvConfStorageLocation.isBlank()) {
-          Log.w(TAG, "MPV config storage location not set, cannot copy Lua scripts")
+        if (mpvConfStorageUri.isBlank()) {
+          Log.w(TAG, "MPV config storage URI not set, cannot copy Lua scripts")
           return@runCatching
         }
 
-        val sourceFolder = File(mpvConfStorageLocation)
-
-        if (!sourceFolder.exists() || !sourceFolder.isDirectory) {
-          Log.e(TAG, "MPV config storage directory does not exist or is not a directory: $mpvConfStorageLocation")
+        val tree = DocumentFile.fromTreeUri(this, mpvConfStorageUri.toUri())
+        if (tree == null) {
+          Log.e(TAG, "Failed to access MPV config storage directory")
           return@runCatching
         }
- 
-        if (!sourceFolder.canRead()) {
-          Log.e(TAG, "MPV config storage directory cannot be read: $mpvConfStorageLocation")
+
+        if (!tree.exists() || !tree.canRead()) {
+          Log.e(TAG, "MPV config storage directory does not exist or cannot be read")
           return@runCatching
         }
 
@@ -990,20 +937,21 @@ class PlayerActivity :
 
         selectedScripts.forEach { scriptName ->
           runCatching {
-            val scriptFile = File(sourceFolder, scriptName)
-
-            if (scriptFile.exists() && scriptFile.isFile && scriptFile.canRead()) {
-              val scriptsDirPath = File(filesDir.path, "scripts")
-              scriptsDirPath.mkdirs()
-              val targetFile = File(scriptsDirPath, scriptName)
-
-              // Copy file directly
-              scriptFile.copyTo(targetFile, overwrite = true)
-
-              Log.d(TAG, "Successfully copied Lua script: $scriptName to ${targetFile.absolutePath}")
-              successCount++
+            val scriptFile = tree.findFile(scriptName)
+            if (scriptFile != null && scriptFile.exists() && scriptFile.canRead()) {
+              contentResolver.openInputStream(scriptFile.uri)?.use { input ->
+                val scriptsDirPath = File(filesDir.path, "scripts")
+                scriptsDirPath.mkdirs()
+                val targetFile = File(scriptsDirPath, scriptName)
+                targetFile.writeText(input.bufferedReader().readText())
+                Log.d(TAG, "Successfully copied Lua script: $scriptName to ${targetFile.absolutePath}")
+                successCount++
+              } ?: run {
+                Log.e(TAG, "Failed to open input stream for Lua script: $scriptName")
+                failCount++
+              }
             } else {
-              Log.w(TAG, "Lua script not found or not readable: $scriptName at ${scriptFile.absolutePath}")
+              Log.w(TAG, "Lua script not found or not readable: $scriptName")
               failCount++
             }
           }.onFailure { e ->
@@ -1020,7 +968,6 @@ class PlayerActivity :
       Log.e(TAG, "Error in copyMPVScripts", e)
     }
   }
-
 
   private fun copyMPVFonts() {
     runCatching {
@@ -1199,30 +1146,23 @@ class PlayerActivity :
     }
   }
 
-    /**
- * Parses the file path from the intent, handling URL decoding for localhost URLs.
- *
- * This method checks the intent action and data to determine the file path.
- * It supports the following actions:
- * - ACTION_VIEW: The file path is contained in the intent data.
- * - ACTION_SEND: The file path is contained in the intent extras.
- *
- * For localhost URLs (network files served through local proxy), it decodes
- * the filename portion to handle special characters properly.
- *
- * @param intent The intent containing the file URI
- * @return The resolved file path with decoded filename if applicable, or null if not found
- */
-  private fun parsePathFromIntent(intent: Intent): String? {
-      val filepath = when (intent.action) {
-          Intent.ACTION_VIEW -> intent.data?.resolveUri(this)
-          Intent.ACTION_SEND -> parsePathFromSendIntent(intent)
-          else -> intent.getStringExtra("uri")
-      }
-
-      // Decode localhost URLs to handle special characters in filenames
-      return filepath?.let { decodeLocalhostUrl(it) }
-  }
+  /**
+   * Parses the file path from the intent.
+   *
+   * This method checks the intent action and data to determine the file path.
+   * It supports the following actions:
+   * - ACTION_VIEW: The file path is contained in the intent data.
+   * - ACTION_SEND: The file path is contained in the intent extras.
+   *
+   * @param intent The intent containing the file URI
+   * @return The resolved file path, or null if not found
+   */
+  private fun parsePathFromIntent(intent: Intent): String? =
+    when (intent.action) {
+      Intent.ACTION_VIEW -> intent.data?.resolveUri(this)
+      Intent.ACTION_SEND -> parsePathFromSendIntent(intent)
+      else -> intent.getStringExtra("uri")
+    }
 
   /**
    * Parses the file path from a SEND intent.
@@ -1897,59 +1837,40 @@ class PlayerActivity :
   }
 
   /**
-   * Applies saved subtitle preferences when a file is loaded.
-   * 
-   * IMPORTANTE: Si el usuario tiene un mpv.conf personalizado con opciones de subtítulos,
-   * esta función NO se ejecuta para respetar su configuración.
-   * 
-   * Los cambios manuales desde la UI (paneles de control) siempre se aplican directamente
-   * mediante setProperty, así que funcionarán independientemente de esta función.
+   * Applies all saved subtitle preferences when a file is loaded.
+   * This ensures subtitle customizations (font, colors, position, etc.) persist across videos.
    */
   private fun applySubtitlePreferences() {
-      // Si el usuario tiene mpv.conf personalizado, no aplicar preferencias de la app
-      if (hasCustomMpvConfig) {
-          Log.d(TAG, "Skipping app subtitle preferences - using mpv.conf settings")
-          return
-      }
+    // Typography settings
+    MPVLib.setPropertyString("sub-font", subtitlesPreferences.font.get())
+    MPVLib.setPropertyString("secondary-sub-font", subtitlesPreferences.font.get())
+    MPVLib.setPropertyInt("sub-font-size", subtitlesPreferences.fontSize.get())
+    MPVLib.setPropertyBoolean("sub-bold", subtitlesPreferences.bold.get())
+    MPVLib.setPropertyBoolean("sub-italic", subtitlesPreferences.italic.get())
+    MPVLib.setPropertyString("sub-justify", subtitlesPreferences.justification.get().value)
+    MPVLib.setPropertyString("sub-border-style", subtitlesPreferences.borderStyle.get().value)
+    MPVLib.setPropertyInt("sub-outline-size", subtitlesPreferences.borderSize.get())
+    MPVLib.setPropertyInt("sub-shadow-offset", subtitlesPreferences.shadowOffset.get())
 
-      // Aplicar preferencias normalmente (solo si NO hay mpv.conf personalizado)
+    // Color settings
+    MPVLib.setPropertyString("sub-color", subtitlesPreferences.textColor.get().toColorHexString())
+    MPVLib.setPropertyString("sub-border-color", subtitlesPreferences.borderColor.get().toColorHexString())
+    MPVLib.setPropertyString("sub-back-color", subtitlesPreferences.backgroundColor.get().toColorHexString())
 
-      // Typography settings
-      val font = subtitlesPreferences.font.get()
-      if (font.isNotBlank()) {
-          MPVLib.setPropertyString("sub-font", font)
-          MPVLib.setPropertyString("secondary-sub-font", font)
-      }
+    // Miscellaneous settings
+    val overrideAssSubs = subtitlesPreferences.overrideAssSubs.get()
+    MPVLib.setPropertyString("sub-ass-override", if (overrideAssSubs) "force" else "scale")
+    MPVLib.setPropertyString("secondary-sub-ass-override", if (overrideAssSubs) "force" else "scale")
+    
+    val scaleByWindow = subtitlesPreferences.scaleByWindow.get()
+    val scaleValue = if (scaleByWindow) "yes" else "no"
+    MPVLib.setPropertyString("sub-scale-by-window", scaleValue)
+    MPVLib.setPropertyString("sub-use-margins", scaleValue)
 
-      MPVLib.setPropertyInt("sub-font-size", subtitlesPreferences.fontSize.get())
-      MPVLib.setPropertyBoolean("sub-bold", subtitlesPreferences.bold.get())
-      MPVLib.setPropertyBoolean("sub-italic", subtitlesPreferences.italic.get())
-      MPVLib.setPropertyString("sub-justify", subtitlesPreferences.justification.get().value)
-      MPVLib.setPropertyString("sub-border-style", subtitlesPreferences.borderStyle.get().value)
-      MPVLib.setPropertyInt("sub-border-size", subtitlesPreferences.borderSize.get())
-      MPVLib.setPropertyInt("sub-shadow-offset", subtitlesPreferences.shadowOffset.get())
+    MPVLib.setPropertyFloat("sub-scale", subtitlesPreferences.subScale.get())
+    MPVLib.setPropertyInt("sub-pos", subtitlesPreferences.subPos.get())
 
-      // Color settings
-      MPVLib.setPropertyString("sub-color", subtitlesPreferences.textColor.get().toColorHexString())
-      MPVLib.setPropertyString("sub-border-color", subtitlesPreferences.borderColor.get().toColorHexString())
-      MPVLib.setPropertyString("sub-back-color", subtitlesPreferences.backgroundColor.get().toColorHexString())
-
-      // Miscellaneous settings
-      val overrideAssSubs = subtitlesPreferences.overrideAssSubs.get()
-      MPVLib.setPropertyString("sub-ass-override", if (overrideAssSubs) "force" else "scale")
-      MPVLib.setPropertyString("secondary-sub-ass-override", if (overrideAssSubs) "force" else "scale")
-      MPVLib.setPropertyString("sub-ass-force-margins", "yes")
-      MPVLib.setPropertyString("secondary-sub-ass-force-margins", "yes")
-
-      val scaleByWindow = subtitlesPreferences.scaleByWindow.get()
-      val scaleValue = if (scaleByWindow) "yes" else "no"
-      MPVLib.setPropertyString("sub-scale-by-window", scaleValue)
-      MPVLib.setPropertyString("sub-use-margins", scaleValue)
-
-      MPVLib.setPropertyFloat("sub-scale", subtitlesPreferences.subScale.get())
-      MPVLib.setPropertyInt("sub-pos", subtitlesPreferences.subPos.get())
-
-      Log.d(TAG, "Applied subtitle preferences from app settings")
+    Log.d(TAG, "Applied subtitle preferences")
   }
 
   /**
@@ -2465,29 +2386,13 @@ class PlayerActivity :
 
     when (keyCode) {
       KeyEvent.KEYCODE_DPAD_UP -> {
-        // Up navega al siguiente capítulo o salta adelante
-        if (isNoSheetOpen) {
-          viewModel.handleChapterNext()
-          return true
-        }
         return super.onKeyDown(keyCode, event)
       }
 
-      KeyEvent.KEYCODE_DPAD_DOWN -> {
-        // Down navega al capítulo anterior o salta atrás
-        if (isNoSheetOpen) {
-          viewModel.handleChapterPrevious()
-          return true
-        }
-        if (isTrackSheetOpen) {
-          return super.onKeyDown(keyCode, event)
-        }
-        return super.onKeyDown(keyCode, event)
-      }
-
+      KeyEvent.KEYCODE_DPAD_DOWN,
       KeyEvent.KEYCODE_DPAD_RIGHT,
       KeyEvent.KEYCODE_DPAD_LEFT,
-      -> {
+        -> {
         if (isTrackSheetOpen) {
           return super.onKeyDown(keyCode, event)
         }
@@ -2512,11 +2417,6 @@ class PlayerActivity :
         if (isTrackSheetOpen) {
           return super.onKeyDown(keyCode, event)
         }
-        // Center/Enter para play/pause
-        if (isNoSheetOpen) {
-          viewModel.pauseUnpause()
-          return true
-        }
         return super.onKeyDown(keyCode, event)
       }
 
@@ -2539,21 +2439,6 @@ class PlayerActivity :
 
       KeyEvent.KEYCODE_MEDIA_STOP -> {
         finishAndRemoveTask()
-        return true
-      }
-
-      KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-        viewModel.pauseUnpause()
-        return true
-      }
-
-      KeyEvent.KEYCODE_MEDIA_PLAY -> {
-        viewModel.unpause()
-        return true
-      }
-
-      KeyEvent.KEYCODE_MEDIA_PAUSE -> {
-        viewModel.pause()
         return true
       }
 
@@ -3284,6 +3169,30 @@ class PlayerActivity :
 
     /**
      * Milliseconds-to-seconds conversion factor.
+     */
+    private const val MILLISECONDS_TO_SECONDS = 1000
+
+    /**
+     * Factor to divide subtitle and audio delays to convert from ms to seconds.
+     */
+    private const val DELAY_DIVISOR = 1000.0
+
+    /**
+     * Default playback speed (1.0 = normal).
+     */
+    private const val DEFAULT_PLAYBACK_SPEED = 1.0
+
+    /**
+     * Default subtitle speed (1.0 = normal).
+     */
+    private const val DEFAULT_SUB_SPEED = 1.0
+
+    /**
+     * General tag for logging from PlayerActivity.
+     */
+    const val TAG = "mpvex"
+  }
+}     * Milliseconds-to-seconds conversion factor.
      */
     private const val MILLISECONDS_TO_SECONDS = 1000
 
