@@ -3308,28 +3308,4 @@ class PlayerActivity :
      */
     const val TAG = "mpvex"
   }
-}     * Milliseconds-to-seconds conversion factor.
-     */
-    private const val MILLISECONDS_TO_SECONDS = 1000
-
-    /**
-     * Factor to divide subtitle and audio delays to convert from ms to seconds.
-     */
-    private const val DELAY_DIVISOR = 1000.0
-
-    /**
-     * Default playback speed (1.0 = normal).
-     */
-    private const val DEFAULT_PLAYBACK_SPEED = 1.0
-
-    /**
-     * Default subtitle speed (1.0 = normal).
-     */
-    private const val DEFAULT_SUB_SPEED = 1.0
-
-    /**
-     * General tag for logging from PlayerActivity.
-     */
-    const val TAG = "mpvex"
   }
-}
