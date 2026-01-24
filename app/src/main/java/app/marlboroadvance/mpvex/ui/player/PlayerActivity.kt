@@ -958,7 +958,7 @@ class PlayerActivity :
       // Copy user-selected Lua scripts if enabled
       if (advancedPreferences.enableLuaScripts.get()) {
         val selectedScripts = advancedPreferences.selectedLuaScripts.get()
-        val mpvConfStorageLocation = advancedPreferences.mpvConfStorageLocation
+        val mpvConfStorageLocation = advancedPreferences.mpvConfStorageLocation.get()
 
         Log.d(TAG, "Lua scripts enabled: ${selectedScripts.size} script(s) selected: ${selectedScripts.joinToString()}")
 
