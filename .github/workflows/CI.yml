@@ -25,118 +25,111 @@ jobs:
         run: chmod +x ./gradlew
 
       # ───────────── BUILD ─────────────
-
-      - name: Build release with Gradle
-        run: ./gradlew assembleRelease --stacktrace
+      - name: Build Standard release
+        run: ./gradlew assembleStandardRelease --stacktrace
 
       # ───────────── VERSION ─────────────
-
       - name: Get app version
         run: |
           VERSION=$(./gradlew -q printVersionName)
           echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
-          echo "Building version: $VERSION"
+          echo "Building version: v$VERSION"
 
-      # Requiere este task en Gradle:
-      # tasks.register("printVersionName") {
-      #     println android.defaultConfig.versionName
-      # }
-
+      # ───────────── VERIFY ─────────────
       - name: Verify build output
         run: |
-          RELEASE_DIR="app/build/outputs/apk/release"
-          ls -lah "$RELEASE_DIR"
+          STD_DIR="app/build/outputs/apk/standard/release"
+          if [ ! -d "$STD_DIR" ]; then
+            echo "Standard release directory does not exist!"
+            find app/build/outputs -name "*.apk" -type f
+            exit 1
+          fi
+          ls -lah "$STD_DIR"
 
-      # ───────────── SIGNING ─────────────
-
+      # ───────────── SIGN ─────────────
       - name: Sign APKs
         run: |
           set -e
-          RELEASE_DIR="app/build/outputs/apk/release"
+          STD_DIR="app/build/outputs/apk/standard/release"
 
           echo "${{ secrets.SIGNING_KEYSTORE }}" | base64 -d > release.keystore
 
-          find "$RELEASE_DIR" -name "app-*-release-unsigned.apk" -type f | while read -r apk; do
-            signed_apk="${apk/-unsigned/}"
+          find "$STD_DIR" -name "app-standard-*-release-unsigned.apk" -type f | while read -r apk; do
+            signed="${apk/-unsigned/}"
 
             $ANDROID_HOME/build-tools/34.0.0/apksigner sign \
               --ks release.keystore \
               --ks-key-alias "${{ secrets.SIGNING_KEY_ALIAS }}" \
               --ks-pass "pass:${{ secrets.SIGNING_STORE_PASSWORD }}" \
               --key-pass "pass:${{ secrets.KEY_PASSWORD }}" \
-              --out "$signed_apk" \
+              --out "$signed" \
               "$apk"
 
-            $ANDROID_HOME/build-tools/34.0.0/apksigner verify "$signed_apk"
+            $ANDROID_HOME/build-tools/34.0.0/apksigner verify "$signed"
             rm "$apk"
           done
 
           rm release.keystore
-          ls -lh "$RELEASE_DIR"/app-*-release.apk
+          ls -lh "$STD_DIR"/app-standard-*-release.apk
 
       # ───────────── RENAME ─────────────
-
       - name: Rename APKs
         run: |
           set -e
-          RELEASE_DIR="app/build/outputs/apk/release"
-          VERSION="${APP_VERSION}"
+          VERSION="v${APP_VERSION}"
+          STD_DIR="app/build/outputs/apk/standard/release"
 
           declare -A MAP=(
-            ["universal"]="app-universal-release.apk"
-            ["arm64-v8a"]="app-arm64-v8a-release.apk"
-            ["armeabi-v7a"]="app-armeabi-v7a-release.apk"
-            ["x86"]="app-x86-release.apk"
-            ["x86_64"]="app-x86_64-release.apk"
+            ["universal"]="app-standard-universal-release.apk"
+            ["arm64-v8a"]="app-standard-arm64-v8a-release.apk"
+            ["armeabi-v7a"]="app-standard-armeabi-v7a-release.apk"
+            ["x86"]="app-standard-x86-release.apk"
+            ["x86_64"]="app-standard-x86_64-release.apk"
           )
 
           for abi in "${!MAP[@]}"; do
-            src="$RELEASE_DIR/${MAP[$abi]}"
-            dst="$RELEASE_DIR/mpvEx-${abi}-${VERSION}.apk"
+            src="$STD_DIR/${MAP[$abi]}"
+            dst="$STD_DIR/mpvEx-${abi}-${VERSION}.apk"
 
-            if [ ! -f "$src" ]; then
-              echo "::error file=$src::APK not found"
-              exit 1
-            fi
-
+            [ -f "$src" ] || { echo "::error file=$src::Missing APK"; exit 1; }
             mv "$src" "$dst"
           done
 
-          ls -lh "$RELEASE_DIR"/mpvEx-*.apk
+          ls -lh "$STD_DIR"/mpvEx-*.apk
 
-      # ───────────── ARTIFACTS ─────────────
+      # ───────────── ARTIFACTS (independientes) ─────────────
 
-      - name: Upload Universal APK
+      - name: Upload Universal
         uses: actions/upload-artifact@v4
         with:
           name: mpvEx-universal
-          path: app/build/outputs/apk/release/mpvEx-universal-${{ env.APP_VERSION }}.apk
+          path: app/build/outputs/apk/standard/release/mpvEx-universal-v${{ env.APP_VERSION }}.apk
           retention-days: 90
 
-      - name: Upload arm64-v8a APK
+      - name: Upload arm64-v8a
         uses: actions/upload-artifact@v4
         with:
           name: mpvEx-arm64-v8a
-          path: app/build/outputs/apk/release/mpvEx-arm64-v8a-${{ env.APP_VERSION }}.apk
+          path: app/build/outputs/apk/standard/release/mpvEx-arm64-v8a-v${{ env.APP_VERSION }}.apk
           retention-days: 90
 
-      - name: Upload armeabi-v7a APK
+      - name: Upload armeabi-v7a
         uses: actions/upload-artifact@v4
         with:
           name: mpvEx-armeabi-v7a
-          path: app/build/outputs/apk/release/mpvEx-armeabi-v7a-${{ env.APP_VERSION }}.apk
+          path: app/build/outputs/apk/standard/release/mpvEx-armeabi-v7a-v${{ env.APP_VERSION }}.apk
           retention-days: 90
 
-      - name: Upload x86 APK
+      - name: Upload x86
         uses: actions/upload-artifact@v4
         with:
           name: mpvEx-x86
-          path: app/build/outputs/apk/release/mpvEx-x86-${{ env.APP_VERSION }}.apk
+          path: app/build/outputs/apk/standard/release/mpvEx-x86-v${{ env.APP_VERSION }}.apk
           retention-days: 90
 
-      - name: Upload x86_64 APK
+      - name: Upload x86_64
         uses: actions/upload-artifact@v4
         with:
           name: mpvEx-x86_64
-          path: app/build/outputs/apk/release/mpvEx-x86_64-${{ env.APP_VERSION }}.apk
+          path: app/build/outputs/apk/standard/release/mpvEx-x86_64-v${{ env.APP_VERSION }}.apk
           retention-days: 90
