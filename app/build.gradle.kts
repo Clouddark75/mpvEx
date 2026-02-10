@@ -1,6 +1,6 @@
-
 import com.android.build.api.variant.FilterConfiguration
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.net.URL
 
 plugins {
   alias(libs.plugins.ksp)
@@ -35,26 +35,24 @@ android {
   productFlavors {
     create("standard") {
       dimension = "distribution"
-      // Standard flavor includes all features
       buildConfigField("boolean", "ENABLE_UPDATE_FEATURE", "true")
     }
-    
+
     create("fdroid") {
       dimension = "distribution"
-      // F-Droid flavor: same package name, different version suffix
       versionNameSuffix = "-fdroid"
-      // F-Droid flavor excludes update feature
       buildConfigField("boolean", "ENABLE_UPDATE_FEATURE", "false")
-      // F-Droid only needs ARM64-v8a
       ndk {
         abiFilters += "arm64-v8a"
       }
     }
   }
+
   dependenciesInfo {
     includeInApk = false
     includeInBundle = false
   }
+
   splits {
     abi {
       isEnable = true
@@ -69,37 +67,42 @@ android {
       isMinifyEnabled = true
       isShrinkResources = true
       proguardFiles(
-         getDefaultProguardFile("proguard-android-optimize.txt"),
+        getDefaultProguardFile("proguard-android-optimize.txt"),
         "proguard-rules.pro",
       )
       ndk {
-        debugSymbolLevel = "none" // or 'minimal' if needed for crash reports
+        debugSymbolLevel = "none"
       }
     }
+
     create("preview") {
       initWith(getByName("release"))
-
       signingConfig = signingConfigs["debug"]
       applicationIdSuffix = ".preview"
       versionNameSuffix = "-${getCommitCount()}"
     }
+
     named("debug") {
       applicationIdSuffix = ".debug"
       versionNameSuffix = "-${getCommitCount()}"
     }
   }
+
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
   }
+
   buildFeatures {
     compose = true
     viewBinding = true
     buildConfig = true
   }
+
   composeCompiler {
     includeSourceInformation = true
   }
+
   packaging {
     resources {
       excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -121,21 +124,26 @@ android {
     }
   }
 
-  val abiCodes =
-    mapOf(
-      "armeabi-v7a" to 1,
-      "arm64-v8a" to 2,
-      "x86" to 3,
-      "x86_64" to 4,
-    )
+  val abiCodes = mapOf(
+    "armeabi-v7a" to 1,
+    "arm64-v8a" to 2,
+    "x86" to 3,
+    "x86_64" to 4,
+  )
+
   androidComponents {
     onVariants { variant ->
       variant.outputs.forEach { output ->
-        val abi = output.filters.find { it.filterType == FilterConfiguration.FilterType.ABI }?.identifier
-        output.versionCode.set((output.versionCode.orNull ?: 0) * 10 + (abiCodes[abi] ?: 0))
+        val abi = output.filters
+          .find { it.filterType == FilterConfiguration.FilterType.ABI }
+          ?.identifier
+        output.versionCode.set(
+          (output.versionCode.orNull ?: 0) * 10 + (abiCodes[abi] ?: 0)
+        )
       }
     }
   }
+
   @Suppress("UnstableApiUsage")
   androidResources {
     generateLocaleConfig = true
@@ -159,6 +167,34 @@ room {
   schemaDirectory("$projectDir/schemas")
 }
 
+/* -------------------------------------------------------------------------- */
+/* 🔥 MPV AAR — DESCARGA DIRECTA DESDE GITHUB RELEASE                          */
+/* -------------------------------------------------------------------------- */
+
+val mpvAar = layout.buildDirectory.file("mpv/mpv-android-lib-V1.1.aar")
+
+tasks.register("downloadMpvAar") {
+  doLast {
+    val outFile = mpvAar.get().asFile
+    if (!outFile.exists()) {
+      outFile.parentFile.mkdirs()
+      URL(
+        "https://github.com/Clouddark75/mpvlibAndroid/releases/download/V1.1/mpv-android-lib-V1.1.aar"
+      ).openStream().use { input ->
+        outFile.outputStream().use { output ->
+          input.copyTo(output)
+        }
+      }
+    }
+  }
+}
+
+tasks.named("preBuild") {
+  dependsOn("downloadMpvAar")
+}
+
+/* -------------------------------------------------------------------------- */
+
 dependencies {
   implementation(libs.androidx.activity.compose)
   implementation(platform(libs.androidx.compose.bom))
@@ -179,14 +215,12 @@ dependencies {
   implementation(libs.androidx.documentfile)
   implementation(libs.saveable)
 
-
   implementation(platform(libs.koin.bom))
   implementation(libs.bundles.koin)
 
   implementation(libs.seeker)
   implementation(libs.compose.prefs)
   implementation(libs.aboutlibraries.compose.m3)
-
   implementation(libs.accompanist.permissions)
 
   implementation(libs.room.runtime)
@@ -201,12 +235,13 @@ dependencies {
   implementation(libs.truetype.parser)
   implementation(libs.fsaf)
   implementation(libs.mediainfo.lib)
-  implementation("com.github.Clouddark75:mpvlibAndroid:V1.1")
 
-  // Network protocol libraries
-  implementation(libs.smbj) // SMB/CIFS
-  implementation(libs.commons.net) // FTP
-  implementation(libs.sardine.android) { 
+  // 🔥 MPV (AAR descargado)
+  implementation(files(mpvAar))
+
+  implementation(libs.smbj)
+  implementation(libs.commons.net)
+  implementation(libs.sardine.android) {
     exclude(group = "xpp3", module = "xpp3")
   }
   implementation(libs.nanohttpd)
@@ -217,25 +252,21 @@ dependencies {
   implementation(libs.coil.compose)
 }
 
+/* -------------------------------------------------------------------------- */
+
 fun getCommitCount(): String = runCommand("git rev-list --count HEAD") ?: "0"
 
 fun getCommitSha(): String = runCommand("git rev-parse --short HEAD") ?: "unknown"
 
 fun runCommand(command: String): String? =
   try {
-    val parts = command.split(' ')
-    val process =
-      ProcessBuilder(parts)
-        .redirectErrorStream(true)
-        .start()
-    val output =
-      process.inputStream
-        .bufferedReader()
-        .readText()
-        .trim()
+    val process = ProcessBuilder(command.split(' '))
+      .redirectErrorStream(true)
+      .start()
+    val output = process.inputStream.bufferedReader().readText().trim()
     process.waitFor()
     output.ifEmpty { null }
-  } catch (e: Exception) {
+  } catch (_: Exception) {
     null
   }
 
