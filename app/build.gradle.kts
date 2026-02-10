@@ -1,6 +1,8 @@
 import com.android.build.api.variant.FilterConfiguration
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.net.URL
+import groovy.json.JsonSlurper
+
 
 plugins {
   alias(libs.plugins.ksp)
@@ -168,24 +170,45 @@ room {
 }
 
 /* -------------------------------------------------------------------------- */
-/* 🔥 MPV AAR — DESCARGA DIRECTA DESDE GITHUB RELEASE                          */
+/* 🔥 MPV AAR — DESCARGA AUTOMÁTICA DEL LATEST RELEASE (GitHub API)            */
 /* -------------------------------------------------------------------------- */
 
-val mpvAar = layout.buildDirectory.file("mpv/mpv-android-lib-V1.1.aar")
+val mpvDir = layout.buildDirectory.dir("mpv")
+val mpvAar = mpvDir.map { it.file("mpv-latest.aar") }
 
 tasks.register("downloadMpvAar") {
+  outputs.file(mpvAar)
+
   doLast {
     val outFile = mpvAar.get().asFile
-    if (!outFile.exists()) {
-      outFile.parentFile.mkdirs()
-      URL(
-        "https://github.com/Clouddark75/mpvlibAndroid/releases/download/V1.1/mpv-android-lib-V1.1.aar"
-      ).openStream().use { input ->
-        outFile.outputStream().use { output ->
-          input.copyTo(output)
-        }
+    outFile.parentFile.mkdirs()
+
+    println("[MPV] Consultando latest release…")
+
+    val apiUrl =
+      URL("https://api.github.com/repos/Clouddark75/mpvlibAndroid/releases/latest")
+        .readText()
+
+    val json = JsonSlurper().parseText(apiUrl) as Map<*, *>
+    val assets = json["assets"] as List<*>
+
+    val aarAsset =
+      assets
+        .map { it as Map<*, *> }
+        .firstOrNull { (it["name"] as String).endsWith(".aar") }
+        ?: error("No se encontró ningún .aar en el latest release")
+
+    val downloadUrl = aarAsset["browser_download_url"] as String
+
+    println("[MPV] Descargando: $downloadUrl")
+
+    URL(downloadUrl).openStream().use { input ->
+      outFile.outputStream().use { output ->
+        input.copyTo(output)
       }
     }
+
+    println("[MPV] AAR listo: ${outFile.absolutePath}")
   }
 }
 
