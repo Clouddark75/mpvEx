@@ -33,7 +33,6 @@ import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.lifecycleScope
 import app.marlboroadvance.mpvex.database.entities.PlaybackStateEntity
 import app.marlboroadvance.mpvex.databinding.PlayerLayoutBinding
@@ -936,7 +935,198 @@ class PlayerActivity :
             if (prefContent.isNotBlank()) writeText(prefContent)
           }
           Log.d(TAG, "Config not found in directory, used preferences: $configName")
+/**
+ * Initializes the MPV player with the necessary paths and observers.
+ */
+private fun setupMPV() {
+  // Copy essential files FIRST, before MPV initialization
+  runCatching {
+    Utils.copyAssets(this@PlayerActivity)
+    syncFromUserMpvDirectory()
+    Log.d(TAG, "MPV config and scripts prepared successfully")
+  }.onFailure { e ->
+    Log.e(TAG, "Error copying MPV config and scripts", e)
+  }
+
+  // NOW initialize MPV - it will find and load the scripts we just copied
+  player.initialize(filesDir.path, cacheDir.path)
+  mpvInitialized = true
+  Log.d(TAG, "MPV initialized")
+
+  // Add observer after initialization
+  MPVLib.addObserver(playerObserver)
+}
+
+/**
+ * Syncs ALL MPV assets from the user's configured MPV directory to internal storage.
+ * Handles: mpv.conf, input.conf, scripts/, script-opts/, shaders/, fonts/
+ *
+ * Uses case-insensitive subfolder matching and falls back to root scanning
+ * if standard subfolders don't exist. Falls back to preferences-based config
+ * if no user directory is configured.
+ */
+private fun syncFromUserMpvDirectory() {
+  val mpvConfStorageLocation = advancedPreferences.mpvConfStorageLocation.get()
+
+  // Try to open the user's MPV directory
+  val folder = if (mpvConfStorageLocation.isNotBlank()) {
+    runCatching {
+      File(mpvConfStorageLocation)
+    }.getOrNull()?.takeIf { it.exists() && it.isDirectory && it.canRead() }
+  } else null
+
+  if (folder != null) {
+    Log.d(TAG, "Syncing from user MPV directory: ${folder.absolutePath}")
+    syncConfigFiles(folder)
+    syncFonts(folder)
+    Log.d(TAG, "Full MPV directory sync completed")
+  } else {
+    // Fallback: use preferences-based config (no user directory set)
+    Log.d(TAG, "No MPV directory configured, using preferences fallback")
+    copyMPVConfigFromPreferences()
+  }
+}
+
+// ==================== Config Files Sync ====================
+
+/**
+ * Syncs mpv.conf and input.conf from the user's MPV directory.
+ * Also caches the content in preferences for the config editor.
+ */
+private fun syncConfigFiles(folder: File) {
+  for (configName in listOf("mpv.conf", "input.conf")) {
+    runCatching {
+      val configFile = findFileCaseInsensitive(folder, configName)
+      if (configFile != null && configFile.exists() && configFile.isFile && configFile.canRead()) {
+        val content = configFile.readText()
+        File(filesDir, configName).writeText(content)
+        // Cache in preferences for the config editor
+        when (configName) {
+          "mpv.conf" -> advancedPreferences.mpvConf.set(content)
+          "input.conf" -> advancedPreferences.inputConf.set(content)
         }
+        Log.d(TAG, "Synced config: $configName (${content.length} chars)")
+      } else {
+        // Config not in directory, fall back to preferences
+        val prefContent = when (configName) {
+          "mpv.conf" -> advancedPreferences.mpvConf.get()
+          "input.conf" -> advancedPreferences.inputConf.get()
+          else -> ""
+        }
+        File(filesDir, configName).apply {
+          if (!exists()) createNewFile()
+          if (prefContent.isNotBlank()) writeText(prefContent)
+        }
+        Log.d(TAG, "Config not found in directory, used preferences: $configName")
+      }
+    }.onFailure { e ->
+      Log.e(TAG, "Error syncing config: $configName", e)
+    }
+  }
+}
+
+// ==================== Fonts Sync ====================
+
+/**
+ * Syncs font files (.ttf, .otf, .ttc, .woff, .woff2) from the user's MPV directory.
+ * Looks in fonts/ subfolder first (case-insensitive), falls back to root.
+ * Also syncs from the subtitle preferences font folder if set.
+ */
+private fun syncFonts(folder: File) {
+  val internalFontsDir = File(filesDir, "fonts")
+  internalFontsDir.mkdirs()
+
+  val fontsSubdir = findSubdirCaseInsensitive(folder, "fonts")
+  val sourceDir = fontsSubdir ?: folder
+  val fontExtensions = setOf("ttf", "otf", "ttc", "woff", "woff2")
+  var count = 0
+
+  sourceDir.listFiles()?.forEach { file ->
+    if (!file.isFile) return@forEach
+    val name = file.name
+    val ext = name.substringAfterLast('.', "").lowercase()
+    if (ext !in fontExtensions) return@forEach
+
+    val target = File(internalFontsDir, name)
+    // Skip if font already exists (fonts can be large)
+    if (target.exists()) return@forEach
+
+    runCatching {
+      file.copyTo(target, overwrite = false)
+      count++
+      Log.d(TAG, "Synced font: $name")
+    }.onFailure { e ->
+      Log.e(TAG, "Error syncing font: $name", e)
+    }
+  }
+
+  // Also sync from subtitle preferences font folder if set
+  runCatching {
+    val fontsFolderUri = subtitlesPreferences.fontsFolder.get()
+    if (fontsFolderUri.isNotBlank()) {
+      val destDir = fileManager.fromPath("${filesDir.path}/fonts")
+      if (!fileManager.exists(destDir)) {
+        fileManager.createDir(fileManager.fromPath(filesDir.path), "fonts")
+      }
+      val fontsDir = fileManager.fromUri(fontsFolderUri.toUri())
+      if (fontsDir != null && fileManager.exists(fontsDir)) {
+        fileManager.copyDirectoryWithContent(fontsDir, destDir, false)
+      }
+    }
+  }.onFailure { e ->
+    Log.e(TAG, "Error syncing subtitle fonts: ${e.message}")
+  }
+
+  Log.d(TAG, "Fonts sync: $count file(s) from MPV directory")
+}
+
+// ==================== Helpers ====================
+
+/**
+ * Finds a file in the folder (case-insensitive search).
+ * Returns the file if found, null otherwise.
+ */
+private fun findFileCaseInsensitive(folder: File, fileName: String): File? {
+  if (!folder.exists() || !folder.isDirectory) return null
+  
+  return folder.listFiles()?.firstOrNull { file ->
+    file.isFile && file.name.equals(fileName, ignoreCase = true)
+  }
+}
+
+/**
+ * Finds a subdirectory in the folder (case-insensitive search).
+ * Returns the directory if found, null otherwise.
+ */
+private fun findSubdirCaseInsensitive(folder: File, dirName: String): File? {
+  if (!folder.exists() || !folder.isDirectory) return null
+  
+  return folder.listFiles()?.firstOrNull { file ->
+    file.isDirectory && file.name.equals(dirName, ignoreCase = true)
+  }
+}
+
+/**
+ * Fallback: copies config from preferences when no user MPV directory is set.
+ */
+private fun copyMPVConfigFromPreferences() {
+  runCatching {
+    File(filesDir, "mpv.conf").apply {
+      if (!exists()) createNewFile()
+      val content = advancedPreferences.mpvConf.get()
+      if (content.isNotBlank()) writeText(content)
+    }
+    File(filesDir, "input.conf").apply {
+      if (!exists()) createNewFile()
+      val content = advancedPreferences.inputConf.get()
+      if (content.isNotBlank()) writeText(content)
+    }
+    // Ensure fonts directory exists even without user dir
+    File(filesDir, "fonts").mkdirs()
+  }.onFailure { e ->
+    Log.e(TAG, "Error creating fallback config files", e)
+  }
+}        }
       }.onFailure { e ->
         Log.e(TAG, "Error syncing config: $configName", e)
       }
@@ -961,70 +1151,7 @@ class PlayerActivity :
 
     sourceDir.listFiles().forEach { file ->
       if (!file.isFile) return@forEach
-      val name = file.name ?: return@forEach
-      val ext = name.substringAfterLast('.', "").lowercase()
-      if (ext !in fontExtensions) return@forEach
 
-      val target = File(internalFontsDir, name)
-      // Skip if font already exists (fonts can be large)
-      if (target.exists()) return@forEach
-
-      runCatching {
-        contentResolver.openInputStream(file.uri)?.use { input ->
-          target.outputStream().use { output ->
-            input.copyTo(output)
-          }
-          count++
-          Log.d(TAG, "Synced font: $name")
-        }
-      }.onFailure { e ->
-        Log.e(TAG, "Error syncing font: $name", e)
-      }
-    }
-
-    // Also sync from subtitle preferences font folder if set
-    runCatching {
-      val fontsFolderUri = subtitlesPreferences.fontsFolder.get()
-      if (fontsFolderUri.isNotBlank()) {
-        val destDir = fileManager.fromPath("${filesDir.path}/fonts")
-        if (!fileManager.exists(destDir)) {
-          fileManager.createDir(fileManager.fromPath(filesDir.path), "fonts")
-        }
-        val fontsDir = fileManager.fromUri(fontsFolderUri.toUri())
-        if (fontsDir != null && fileManager.exists(fontsDir)) {
-          fileManager.copyDirectoryWithContent(fontsDir, destDir, false)
-        }
-      }
-    }.onFailure { e ->
-      Log.e(TAG, "Error syncing subtitle fonts: ${e.message}")
-    }
-
-    Log.d(TAG, "Fonts sync: $count file(s) from MPV directory")
-  }
-
-  // ==================== Helpers ====================
-
-  /**
-   * Fallback: copies config from preferences when no user MPV directory is set.
-   */
-  private fun copyMPVConfigFromPreferences() {
-    runCatching {
-      File(filesDir, "mpv.conf").apply {
-        if (!exists()) createNewFile()
-        val content = advancedPreferences.mpvConf.get()
-        if (content.isNotBlank()) writeText(content)
-      }
-      File(filesDir, "input.conf").apply {
-        if (!exists()) createNewFile()
-        val content = advancedPreferences.inputConf.get()
-        if (content.isNotBlank()) writeText(content)
-      }
-      // Ensure fonts directory exists even without user dir
-      File(filesDir, "fonts").mkdirs()
-    }.onFailure { e ->
-      Log.e(TAG, "Error creating fallback config files", e)
-    }
-  }
 
   /**
    * Finds a subdirectory by name (case-insensitive) within a DocumentFile.
