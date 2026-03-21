@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,6 +64,7 @@ fun VideoCard(
   isSelected: Boolean = false,
   progressPercentage: Float? = null,
   isOldAndUnplayed: Boolean = false,
+  isWatched: Boolean = false,
   onThumbClick: () -> Unit = {},
   isGridMode: Boolean = false,
   gridColumns: Int = 1,
@@ -194,9 +196,9 @@ fun VideoCard(
           // Show "NEW" label for recently added unplayed videos if enabled (top-left corner)
           // Like MX Player: show NEW for videos added within threshold days that haven't been played
           if (showUnplayedOldVideoLabel && isOldAndUnplayed) {
-            // Check if video is recently added (within threshold days)
+            // Check if video is recently modified (within threshold days)
             val currentTime = System.currentTimeMillis()
-            val videoAge = currentTime - (video.dateAdded * 1000) // dateAdded is in seconds
+            val videoAge = currentTime - (video.dateModified * 1000) // dateModified is in seconds
             val thresholdMillis = unplayedOldVideoDays * 24 * 60 * 60 * 1000L
 
             if (videoAge <= thresholdMillis) {
@@ -219,6 +221,7 @@ fun VideoCard(
               }
             }
           }
+
 
           // Duration overlay
           Box(
@@ -264,8 +267,16 @@ fun VideoCard(
             MaterialTheme.typography.titleSmall
           } else {
             if (gridColumns == 1) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleSmall
+          }.let { baseStyle ->
+            if (isRecentlyPlayed) baseStyle.copy(fontStyle = FontStyle.Italic) else baseStyle
           },
-          color = if (isRecentlyPlayed) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurface,
+          color = if (isRecentlyPlayed) {
+            MaterialTheme.colorScheme.tertiary 
+          } else if (isWatched) {
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+          } else {
+            MaterialTheme.colorScheme.onSurface
+          },
           maxLines = maxLines,
           overflow = TextOverflow. Ellipsis,
           textAlign = if (useFolderNameStyle) {
@@ -348,9 +359,9 @@ fun VideoCard(
                  )
             }
             
-            if (showDateChip && video.dateAdded > 0) {
+            if (showDateChip && video.dateModified > 0) {
               Text(
-                formatDate(video.dateAdded),
+                formatDate(video.dateModified),
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier
                   .background(
@@ -462,9 +473,9 @@ fun VideoCard(
           // Show "NEW" label for recently added unplayed videos if enabled (top-left corner)
           // Like MX Player: show NEW for videos added within threshold days that haven't been played
           if (showUnplayedOldVideoLabel && isOldAndUnplayed) {
-            // Check if video is recently added (within threshold days)
+            // Check if video is recently modified (within threshold days)
             val currentTime = System.currentTimeMillis()
-            val videoAge = currentTime - (video.dateAdded * 1000) // dateAdded is in seconds
+            val videoAge = currentTime - (video.dateModified * 1000) // dateModified is in seconds
             val thresholdMillis = unplayedOldVideoDays * 24 * 60 * 60 * 1000L
 
             if (videoAge <= thresholdMillis) {
@@ -487,6 +498,7 @@ fun VideoCard(
               }
             }
           }
+
 
           // Duration timestamp overlay at bottom-right of the thumbnail
           Box(
@@ -542,8 +554,16 @@ fun VideoCard(
               MaterialTheme.typography.titleMedium
             } else {
               MaterialTheme.typography.titleSmall
+            }.let { baseStyle ->
+              if (isRecentlyPlayed) baseStyle.copy(fontStyle = FontStyle.Italic) else baseStyle
             },
-            color = if (isRecentlyPlayed) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurface,
+            color = if (isRecentlyPlayed) {
+              MaterialTheme.colorScheme.tertiary 
+            } else if (isWatched) {
+              MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            } else {
+              MaterialTheme.colorScheme.onSurface
+            },
             maxLines = maxLines,
             overflow = TextOverflow.Ellipsis,
           )
@@ -624,9 +644,9 @@ fun VideoCard(
               )
             }
             
-            if (showDateChip && video.dateAdded > 0) {
+            if (showDateChip && video.dateModified > 0) {
               Text(
-                formatDate(video.dateAdded),
+                formatDate(video.dateModified),
                 style = MaterialTheme.typography.labelSmall,
                 modifier =
                   Modifier

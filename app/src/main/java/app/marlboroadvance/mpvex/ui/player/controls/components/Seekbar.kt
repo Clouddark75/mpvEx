@@ -62,6 +62,7 @@ import dev.vivvvek.seeker.Segment
 import `is`.xyz.mpv.Utils
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -77,6 +78,8 @@ fun SeekbarWithTimers(
   chapters: ImmutableList<Segment>,
   paused: Boolean,
   seekbarStyle: SeekbarStyle = SeekbarStyle.Wavy,
+  loopStart: Float? = null,
+  loopEnd: Float? = null,
   modifier: Modifier = Modifier,
 ) {
   val clickEvent = LocalPlayerButtonsClickEvent.current
@@ -139,9 +142,12 @@ fun SeekbarWithTimers(
                 if (!isUserInteracting) isUserInteracting = true
                 userPosition = newPosition.coerceIn(0f, duration)
                 onValueChange(userPosition)
-                scope.launch { animatedPosition.snapTo(userPosition) }
-                isUserInteracting = false
-                onValueChangeFinished()
+                scope.launch { 
+                  // Snap to user position immediately to prevent jumping
+                  animatedPosition.snapTo(userPosition)
+                  isUserInteracting = false
+                  onValueChangeFinished()
+                }
               }
             )
           }
@@ -151,14 +157,21 @@ fun SeekbarWithTimers(
                 isUserInteracting = true 
               },
               onDragEnd = { 
-                scope.launch { animatedPosition.snapTo(userPosition) }
-                isUserInteracting = false
-                onValueChangeFinished()
+                scope.launch { 
+                  // Allow a tiny window for mpv/viewModel to sync back before releasing control
+                  delay(50) 
+                  animatedPosition.snapTo(userPosition)
+                  isUserInteracting = false
+                  onValueChangeFinished()
+                }
               },
               onDragCancel = { 
-                scope.launch { animatedPosition.snapTo(userPosition) }
-                isUserInteracting = false
-                onValueChangeFinished()
+                scope.launch { 
+                  delay(50)
+                  animatedPosition.snapTo(userPosition)
+                  isUserInteracting = false
+                  onValueChangeFinished()
+                }
               },
             ) { change, _ ->
               change.consume()
@@ -195,6 +208,8 @@ fun SeekbarWithTimers(
               isUserInteracting = false
               onValueChangeFinished()
             },
+            loopStart = loopStart,
+            loopEnd = loopEnd,
           )
         }
         SeekbarStyle.Wavy -> {
@@ -208,6 +223,8 @@ fun SeekbarWithTimers(
             seekbarStyle = SeekbarStyle.Wavy,
             onSeek = { }, // Touch handled by parent
             onSeekFinished = { }, // Touch handled by parent
+            loopStart = loopStart,
+            loopEnd = loopEnd,
           )
         }
         SeekbarStyle.Thick -> {
@@ -228,6 +245,8 @@ fun SeekbarWithTimers(
               isUserInteracting = false
               onValueChangeFinished()
             },
+            loopStart = loopStart,
+            loopEnd = loopEnd,
           )
         }
       }
@@ -257,6 +276,8 @@ private fun SquigglySeekbar(
   seekbarStyle: SeekbarStyle,
   onSeek: (Float) -> Unit,
   onSeekFinished: () -> Unit,
+  loopStart: Float? = null,
+  loopEnd: Float? = null,
   modifier: Modifier = Modifier,
 ) {
   val primaryColor = MaterialTheme.colorScheme.primary
@@ -393,7 +414,6 @@ private fun SquigglySeekbar(
 
     // Draw path up to progress position using clipping
     val clipTop = lineAmplitude + strokeWidth
-    val gapHalf = 1.dp.toPx()
 
     fun drawPathWithGaps(
       startX: Float,
@@ -401,59 +421,18 @@ private fun SquigglySeekbar(
       color: Color,
     ) {
       if (endX <= startX) return
-      if (duration <= 0f) {
-        clipRect(
-          left = startX,
-          top = centerY - clipTop,
-          right = endX,
-          bottom = centerY + clipTop,
-        ) {
-          drawPath(
-            path = path,
-            color = color,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
-          )
-        }
-        return
-      }
-      val gaps =
-        chapters
-          .map { (it.start / duration).coerceIn(0f, 1f) * totalWidth }
-          .filter { it in startX..endX }
-          .sorted()
-          .map { x -> (x - gapHalf).coerceAtLeast(startX) to (x + gapHalf).coerceAtMost(endX) }
-
-      var segmentStart = startX
-      for ((gapStart, gapEnd) in gaps) {
-        if (gapStart > segmentStart) {
-          clipRect(
-            left = segmentStart,
-            top = centerY - clipTop,
-            right = gapStart,
-            bottom = centerY + clipTop,
-          ) {
-            drawPath(
-              path = path,
-              color = color,
-              style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
-            )
-          }
-        }
-        segmentStart = gapEnd
-      }
-      if (segmentStart < endX) {
-        clipRect(
-          left = segmentStart,
-          top = centerY - clipTop,
-          right = endX,
-          bottom = centerY + clipTop,
-        ) {
-          drawPath(
-            path = path,
-            color = color,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
-          )
-        }
+      // Chapter markers removed - draw continuous path
+      clipRect(
+        left = startX,
+        top = centerY - clipTop,
+        right = endX,
+        bottom = centerY + clipTop,
+      ) {
+        drawPath(
+          path = path,
+          color = color,
+          style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
+        )
       }
     }
 
@@ -494,6 +473,42 @@ private fun SquigglySeekbar(
           cap = StrokeCap.Round,
         )
     }
+
+    // A-B Loop Indicators for SquigglySeekbar
+    if (loopStart != null || loopEnd != null) {
+      val loopColor = Color(0xFFFFB300)
+      val markerWidth = 2.dp.toPx()
+
+      if (loopStart != null && duration > 0f) {
+        val startPx = (loopStart / duration).coerceIn(0f, 1f) * totalWidth
+        drawLine(
+          color = loopColor,
+          start = Offset(startPx, centerY - lineAmplitude - strokeWidth),
+          end = Offset(startPx, centerY + lineAmplitude + strokeWidth),
+          strokeWidth = markerWidth,
+        )
+      }
+
+      if (loopEnd != null && duration > 0f) {
+        val endPx = (loopEnd / duration).coerceIn(0f, 1f) * totalWidth
+        drawLine(
+          color = loopColor,
+          start = Offset(endPx, centerY - lineAmplitude - strokeWidth),
+          end = Offset(endPx, centerY + lineAmplitude + strokeWidth),
+          strokeWidth = markerWidth,
+        )
+      }
+
+      if (loopStart != null && loopEnd != null && duration > 0f) {
+        val minPx = (minOf(loopStart, loopEnd) / duration).coerceIn(0f, 1f) * totalWidth
+        val maxPx = (maxOf(loopStart, loopEnd) / duration).coerceIn(0f, 1f) * totalWidth
+        drawRect(
+          color = loopColor.copy(alpha = 0.2f),
+          topLeft = Offset(minPx, centerY - lineAmplitude - strokeWidth),
+          size = Size(maxPx - minPx, (lineAmplitude + strokeWidth) * 2),
+        )
+      }
+    }
   }
 }
 
@@ -516,7 +531,7 @@ fun VideoTimer(
         )
         .wrapContentHeight(Alignment.CenterVertically),
     text = Utils.prettyTime(value.toInt(), isInverted),
-    color = MaterialTheme.colorScheme.onSurface,
+    color = Color.White,
     textAlign = TextAlign.Center,
   )
 }
@@ -532,6 +547,8 @@ fun StandardSeekbar(
     seekbarStyle: SeekbarStyle = SeekbarStyle.Standard,
     onSeek: (Float) -> Unit,
     onSeekFinished: () -> Unit,
+    loopStart: Float? = null,
+    loopEnd: Float? = null,
     modifier: Modifier = Modifier,
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
@@ -608,10 +625,8 @@ fun StandardSeekbar(
                 val thumbGapStart = (playedPx - gapHalf).coerceIn(0f, size.width)
                 val thumbGapEnd = (playedPx + gapHalf).coerceIn(0f, size.width)
                 
-                val chapterGaps = chapters
-                    .map { (it.start / duration).coerceIn(0f, 1f) * size.width }
-                    .filter { it > 0f && it < size.width }
-                    .map { x -> (x - chapterGapHalf) to (x + chapterGapHalf) }
+                // Chapter markers removed
+                val chapterGaps = emptyList<Pair<Float, Float>>()
                 
                 fun drawSegment(startX: Float, endX: Float, color: Color) {
                     if (endX - startX < 0.5f) return
@@ -681,6 +696,47 @@ fun StandardSeekbar(
                 if (thumbGapStart > 0) {
                     drawRangeWithGaps(0f, thumbGapStart, chapterGaps, primaryColor)
                 }
+
+                // 3. A-B Loop Indicators
+                if (loopStart != null || loopEnd != null) {
+                    val loopColor = Color(0xFFFFB300) // Amber/Gold color for loop
+                    val markerWidth = 2.dp.toPx()
+                    
+                    // Draw loop start marker
+                    if (loopStart != null) {
+                        val startPx = (loopStart / duration).coerceIn(0f, 1f) * size.width
+                        drawLine(
+                            color = loopColor,
+                            start = Offset(startPx, 0f),
+                            end = Offset(startPx, size.height),
+                            strokeWidth = markerWidth
+                        )
+                    }
+
+                    // Draw loop end marker
+                    if (loopEnd != null) {
+                        val endPx = (loopEnd / duration).coerceIn(0f, 1f) * size.width
+                        drawLine(
+                            color = loopColor,
+                            start = Offset(endPx, 0f),
+                            end = Offset(endPx, size.height),
+                            strokeWidth = markerWidth
+                        )
+                    }
+
+                    // Draw connected segment if both are set
+                    if (loopStart != null && loopEnd != null) {
+                        val minPx = (minOf(loopStart, loopEnd) / duration).coerceIn(0f, 1f) * size.width
+                        val maxPx = (maxOf(loopStart, loopEnd) / duration).coerceIn(0f, 1f) * size.width
+                        
+                        // Draw a semi-transparent overlay between A and B
+                        drawRect(
+                            color = loopColor.copy(alpha = 0.3f),
+                            topLeft = Offset(minPx, 0f),
+                            size = Size(maxPx - minPx, size.height)
+                        )
+                    }
+                }
             }
         },
             thumb = {
@@ -708,93 +764,4 @@ private fun PreviewSeekBar() {
     chapters = persistentListOf(),
     paused = false,
   )
-}
-
-@Composable
-fun SeekbarPreview(
-  style: SeekbarStyle,
-  modifier: Modifier = Modifier,
-  onClick: (() -> Unit)? = null,
-) {
-  val infiniteTransition = rememberInfiniteTransition(label = "seekbar_preview")
-  val progress by infiniteTransition.animateFloat(
-    initialValue = 0f,
-    targetValue = 1f,
-    animationSpec = infiniteRepeatable(
-      animation = tween(3000, easing = LinearEasing),
-      repeatMode = RepeatMode.Reverse
-    ),
-    label = "progress"
-  )
-  val duration = 100f
-  val position = progress * duration
-
-  // Dummy chapters for preview to visualize chapter separation
-  val dummyChapters = persistentListOf(
-    Segment(name = "Chapter 1", start = 0f),
-    Segment(name = "Chapter 2", start = duration * 0.35f),
-    Segment(name = "Chapter 3", start = duration * 0.65f),
-  )
-  
-  Box(
-    modifier = modifier
-      .height(32.dp),
-    contentAlignment = Alignment.Center
-  ) {
-    // Seekbar content
-    when (style) {
-      SeekbarStyle.Standard -> {
-        StandardSeekbar(
-          position = position,
-          duration = duration,
-          chapters = dummyChapters,
-          isPaused = false,
-          isScrubbing = false,
-          useWavySeekbar = true,
-          seekbarStyle = SeekbarStyle.Standard,
-          onSeek = {},
-          onSeekFinished = {},
-        )
-      }
-      SeekbarStyle.Wavy -> {
-        SquigglySeekbar(
-          position = position,
-          duration = duration,
-          chapters = dummyChapters,
-          isPaused = false,
-          isScrubbing = false,
-          useWavySeekbar = true,
-          seekbarStyle = SeekbarStyle.Wavy,
-          onSeek = {},
-          onSeekFinished = {},
-        )
-      }
-      SeekbarStyle.Thick -> {
-        StandardSeekbar(
-          position = position,
-          duration = duration,
-          chapters = dummyChapters,
-          isPaused = false,
-          isScrubbing = false,
-          useWavySeekbar = true,
-          seekbarStyle = SeekbarStyle.Thick,
-          onSeek = {},
-          onSeekFinished = {},
-        )
-      }
-    }
-    
-    // Invisible overlay that intercepts all touch events and triggers onClick
-    if (onClick != null) {
-      Box(
-        modifier = Modifier
-          .matchParentSize()
-          .clickable(
-            interactionSource = remember { MutableInteractionSource() },
-            indication = null, // No ripple on overlay itself
-            onClick = onClick
-          )
-      )
-    }
-  }
 }

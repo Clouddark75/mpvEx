@@ -8,6 +8,7 @@ import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
+import app.marlboroadvance.mpvex.utils.media.OpenDocumentTreeContract
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -202,13 +203,43 @@ object AdvancedPreferencesScreen : Screen {
       ProvidePreferenceLocals {
         val locationPicker =
           rememberLauncherForActivityResult(
-            ActivityResultContracts.OpenDocumentTree(),
+            OpenDocumentTreeContract(),
           ) { uri ->
             if (uri == null) return@rememberLauncherForActivityResult
 
             val flags = Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION
             context.contentResolver.takePersistableUriPermission(uri, flags)
             preferences.mpvConfStorageUri.set(uri.toString())
+
+            // Auto-create standard MPV folder structure
+            scope.launch(Dispatchers.IO) {
+              runCatching {
+                val tree = DocumentFile.fromTreeUri(context, uri)
+                if (tree != null && tree.exists() && tree.canWrite()) {
+                  val subdirs = listOf("fonts", "script-opts", "scripts", "shaders")
+                  for (name in subdirs) {
+                    val existing = tree.listFiles().firstOrNull {
+                      it.isDirectory && it.name?.equals(name, ignoreCase = true) == true
+                    }
+                    if (existing == null) {
+                      tree.createDirectory(name)
+                    }
+                  }
+                  // Create default mpv.conf if missing
+                  val hasConf = tree.listFiles().any {
+                    it.isFile && it.name?.equals("mpv.conf", ignoreCase = true) == true
+                  }
+                  if (!hasConf) {
+                    tree.createFile("application/octet-stream", "mpv.conf")
+                  }
+                  withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "MPV directory ready ✓", Toast.LENGTH_SHORT).show()
+                  }
+                }
+              }.onFailure { e ->
+                android.util.Log.e("AdvancedPrefs", "Error creating MPV directory structure", e)
+              }
+            }
           }
         val mpvConfStorageLocation by preferences.mpvConfStorageUri.collectAsState()
         LazyColumn(
@@ -406,59 +437,6 @@ object AdvancedPreferencesScreen : Screen {
           }
           
           // Scripts Section
-          item {
-            PreferenceSectionHeader(title = "Scripts")
-          }
-          
-          item {
-            PreferenceCard {
-              val selectedScripts by preferences.selectedLuaScripts.collectAsState()
-              val enableLuaScripts by preferences.enableLuaScripts.collectAsState()
-              
-              SwitchPreference(
-                value = enableLuaScripts,
-                onValueChange = preferences.enableLuaScripts::set,
-                title = { Text("Enable Lua Scripts") },
-                summary = { 
-                  Text(
-                    "Load Lua scripts from configuration directory",
-                    color = MaterialTheme.colorScheme.outline,
-                  ) 
-                },
-              )
-              
-              PreferenceDivider()
-              
-              Preference(
-                title = { Text("Manage Lua Scripts") },
-                summary = {
-                  when {
-                    mpvConfStorageLocation.isBlank() || !enableLuaScripts -> Text(
-                      "Set storage location and enable Lua scripts first", 
-                      color = MaterialTheme.colorScheme.outline
-                    )
-                    selectedScripts.isEmpty() -> Text(
-                      "No scripts enabled", 
-                      color = MaterialTheme.colorScheme.outline
-                    )
-                    selectedScripts.size == 1 -> Text(
-                      "1 script enabled",
-                      color = MaterialTheme.colorScheme.outline
-                    )
-                    else -> Text(
-                      "${selectedScripts.size} scripts enabled",
-                      color = MaterialTheme.colorScheme.outline
-                    )
-                  }
-                },
-                onClick = {
-                  backStack.add(LuaScriptsScreen)
-                },
-                enabled = mpvConfStorageLocation.isNotBlank() && enableLuaScripts,
-              )
-            }
-          }
-          
           // History Section
           item {
             PreferenceSectionHeader(title = "History")
