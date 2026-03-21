@@ -1043,22 +1043,6 @@ class PlayerActivity :
     }
   }
 
-  /**
-   * Finds a subdirectory by name (case-insensitive) within a DocumentFile.
-   */
-  private fun findSubdirCaseInsensitive(parent: DocumentFile, name: String): DocumentFile? =
-    parent.listFiles().firstOrNull {
-      it.isDirectory && it.name?.equals(name, ignoreCase = true) == true
-    }
-
-  /**
-   * Finds a file by name (case-insensitive) within a DocumentFile.
-   */
-  private fun findFileCaseInsensitive(parent: DocumentFile, name: String): DocumentFile? =
-    parent.listFiles().firstOrNull {
-      it.isFile && it.name?.equals(name, ignoreCase = true) == true
-    }
-
   override fun onResume() {
     super.onResume()
     updateVolume()
