@@ -10,13 +10,13 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{ github.ref }}
 
       - name: Setup JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'adopt'
           java-version: 17
@@ -100,35 +100,35 @@ jobs:
       # ───────────── ARTIFACTS (independientes) ─────────────
 
       - name: Upload Universal
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mpvEx-universal
           path: app/build/outputs/apk/standard/release/mpvEx-universal-v${{ env.APP_VERSION }}.apk
           retention-days: 90
 
       - name: Upload arm64-v8a
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mpvEx-arm64-v8a
           path: app/build/outputs/apk/standard/release/mpvEx-arm64-v8a-v${{ env.APP_VERSION }}.apk
           retention-days: 90
 
       - name: Upload armeabi-v7a
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mpvEx-armeabi-v7a
           path: app/build/outputs/apk/standard/release/mpvEx-armeabi-v7a-v${{ env.APP_VERSION }}.apk
           retention-days: 90
 
       - name: Upload x86
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mpvEx-x86
           path: app/build/outputs/apk/standard/release/mpvEx-x86-v${{ env.APP_VERSION }}.apk
           retention-days: 90
 
       - name: Upload x86_64
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mpvEx-x86_64
           path: app/build/outputs/apk/standard/release/mpvEx-x86_64-v${{ env.APP_VERSION }}.apk
