@@ -1,5 +1,7 @@
 import com.android.build.api.variant.FilterConfiguration
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.net.URL
+import groovy.json.JsonSlurper
 
 plugins {
   alias(libs.plugins.android.application)
@@ -169,6 +171,54 @@ room {
   schemaDirectory("$projectDir/schemas")
 }
 
+/* -------------------------------------------------------------------------- */
+/* 🔥 MPV AAR — LATEST RELEASE AUTOMÁTICO (GitHub API)                         */
+/* -------------------------------------------------------------------------- */
+
+val mpvDir = layout.buildDirectory.dir("mpv")
+val mpvAar = mpvDir.map { it.file("mpv-latest.aar") }
+
+tasks.register("downloadMpvAar") {
+  outputs.file(mpvAar)
+
+  doLast {
+    val outFile = mpvAar.get().asFile
+    outFile.parentFile.mkdirs()
+
+    println("[MPV] Buscando latest release...")
+
+    val jsonText = URL(
+      "https://api.github.com/repos/Clouddark75/mpvlibAndroid/releases/latest"
+    ).readText()
+
+    val json = JsonSlurper().parseText(jsonText) as Map<*, *>
+    val assets = json["assets"] as List<*>
+
+    val aarAsset = assets
+      .map { it as Map<*, *> }
+      .firstOrNull { (it["name"] as String).endsWith(".aar") }
+      ?: error("No se encontró ningún .aar en el latest release")
+
+    val downloadUrl = aarAsset["browser_download_url"] as String
+
+    println("[MPV] Descargando: $downloadUrl")
+
+    URL(downloadUrl).openStream().use { input ->
+      outFile.outputStream().use { output ->
+        input.copyTo(output)
+      }
+    }
+
+    println("[MPV] AAR listo en: ${outFile.absolutePath}")
+  }
+}
+
+tasks.named("preBuild") {
+  dependsOn("downloadMpvAar")
+}
+
+/* -------------------------------------------------------------------------- */
+
 dependencies {
   implementation(libs.androidx.activity.compose)
   implementation(platform(libs.androidx.compose.bom))
@@ -209,9 +259,10 @@ dependencies {
   implementation(libs.truetype.parser)
   implementation(libs.fsaf)
   implementation(libs.mediainfo.lib)
-  implementation(files("libs/mpv-android-lib-v0.0.1.aar"))
 
-  // Network protocol libraries
+  // 🔥 MPV (latest AAR automático)
+  implementation(files(mpvAar))
+
   implementation(libs.smbj)
   implementation(libs.commons.net)
   implementation(libs.sardine.android) {
@@ -232,8 +283,7 @@ fun getCommitSha(): String =
 
 fun runCommand(command: String): String? =
   try {
-    val parts = command.split(' ')
-    val process = ProcessBuilder(parts)
+    val process = ProcessBuilder(command.split(' '))
       .redirectErrorStream(true)
       .start()
 
@@ -244,7 +294,7 @@ fun runCommand(command: String): String? =
 
     process.waitFor()
     output.ifEmpty { null }
-  } catch (e: Exception) {
+  } catch (_: Exception) {
     null
   }
 
