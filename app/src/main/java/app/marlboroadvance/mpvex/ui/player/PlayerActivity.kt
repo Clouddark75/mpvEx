@@ -1743,29 +1743,40 @@ class PlayerActivity :
    * Handles the file loaded event from MPV.
    * Initializes playback state, loads saved playback data, restores custom settings,
    * applies user preferences, and sets up metadata and media session.
+   * 
+   * IMPORTANT: If external mpv.conf exists, it takes priority over mpvEx preferences.
    */
   private fun handleFileLoaded() {
     // Extract fileName from intent only if not already set
-    // This preserves fileName set in onNewIntent or onCreate
     if (fileName.isBlank()) {
       fileName = getFileName(intent)
-      // Ensure fileName is not blank - use a fallback if necessary
       if (fileName.isBlank()) {
         fileName = intent.data?.lastPathSegment ?: "Unknown Video"
       }
       mediaIdentifier = getMediaIdentifier(intent, fileName)
     } else if (mediaIdentifier.isBlank()) {
-      // If fileName was already set, but mediaIdentifier is missing, set it for safety
       mediaIdentifier = getMediaIdentifier(intent, fileName)
     }
 
-    // Start media notification service (like YouTube - always show notification)
+    // Start media notification service
     startBackgroundPlayback()
 
     // Reset AB loop values when video changes
     viewModel.clearABLoop()
 
     setIntentExtras(intent.extras)
+
+    // Check if external mpv.conf exists
+    val hasExternalConfig = runCatching {
+      val mpvConfFile = File(filesDir, "mpv.conf")
+      val hasConfig = mpvConfFile.exists() && mpvConfFile.length() > 0
+      if (hasConfig) {
+        Log.d(TAG, "External mpv.conf detected - using it instead of mpvEx preferences")
+      } else {
+        Log.d(TAG, "No external mpv.conf - using mpvEx preferences")
+      }
+      hasConfig
+    }.getOrDefault(false)
 
     lifecycleScope.launch(Dispatchers.IO) {
       // Load playback state (will skip track restoration if preferred language configured)
@@ -1787,12 +1798,10 @@ class PlayerActivity :
       withContext(Dispatchers.Main) {
         val savedAspect = playerPreferences.defaultVideoAspect.get()
         val savedCustomRatio = playerPreferences.defaultCustomAspectRatio.get()
-        
+
         if (savedCustomRatio > 0) {
-          // Apply custom aspect ratio
           viewModel.setCustomAspectRatio(savedCustomRatio)
         } else {
-          // Apply standard aspect mode (Fit, Crop, or Stretch)
           viewModel.changeVideoAspect(savedAspect, showUpdate = false)
         }
       }
@@ -1801,26 +1810,20 @@ class PlayerActivity :
     // Save to recently played when video actually loads and plays
     lifecycleScope.launch(Dispatchers.IO) {
       if (playlist.isNotEmpty()) {
-        // For playlist items, save using the current URI
-        // All items are loaded, so playlistIndex is the direct index
         if (playlistIndex >= 0 && playlistIndex < playlist.size) {
           saveRecentlyPlayedForUri(playlist[playlistIndex], fileName)
         } else {
           Log.w(TAG, "Cannot save recently played: invalid playlist index $playlistIndex (playlist size: ${playlist.size})")
         }
       } else {
-        // For non-playlist videos, use the original saveRecentlyPlayed
         saveRecentlyPlayed()
       }
     }
 
     // Only set orientation immediately if NOT in Video mode
-    // For Video mode, wait for video-params/aspect to become available
     if (playerPreferences.orientation.get() != PlayerOrientation.Video) {
       setOrientation()
     } else {
-      // For Video mode, try to set orientation after a short delay to ensure
-      // video dimensions are available
       lifecycleScope.launch {
         kotlinx.coroutines.delay(100)
         if (mpvInitialized && !player.isExiting && !isFinishing) {
@@ -1833,7 +1836,13 @@ class PlayerActivity :
       }
     }
 
-    applySubtitlePreferences()
+    // CRITICAL: Only apply mpvEx subtitle preferences if NO external mpv.conf exists
+    if (!hasExternalConfig) {
+      applySubtitlePreferences()
+      Log.d(TAG, "Applied mpvEx subtitle preferences (no external config)")
+    } else {
+      Log.d(TAG, "Skipped mpvEx subtitle preferences (external config takes priority)")
+    }
 
     // Don't force media-title for m3u/m3u8 streams - let MPV provide it
     if (!isCurrentStreamM3U()) {
@@ -1845,19 +1854,139 @@ class PlayerActivity :
 
     if (subtitlesPreferences.autoloadMatchingSubtitles.get()) {
       lifecycleScope.launch {
-        // For network files played via proxy (SMB/WebDAV/FTP), use the original network file path
         val networkFilePath = intent.getStringExtra("network_file_path")
         val networkConnectionId = intent.getLongExtra("network_connection_id", -1L)
 
         if (networkFilePath != null && networkConnectionId != -1L) {
-          // Pass network file path and connection ID for subtitle discovery
+          SubtitleOps.autoloadSubtitles(
+            videoFilePath = networkFilePath,
+            videoFileName = fileName,
+            networkConnectionId = networkConnectionId,
+  /**
+   * Handles the file loaded event from MPV.
+   * Initializes playback state, loads saved playback data, restores custom settings,
+   * applies user preferences, and sets up metadata and media session.
+   * 
+   * IMPORTANT: If external mpv.conf exists, it takes priority over mpvEx preferences.
+   */
+  private fun handleFileLoaded() {
+    // Extract fileName from intent only if not already set
+    if (fileName.isBlank()) {
+      fileName = getFileName(intent)
+      if (fileName.isBlank()) {
+        fileName = intent.data?.lastPathSegment ?: "Unknown Video"
+      }
+      mediaIdentifier = getMediaIdentifier(intent, fileName)
+    } else if (mediaIdentifier.isBlank()) {
+      mediaIdentifier = getMediaIdentifier(intent, fileName)
+    }
+
+    // Start media notification service
+    startBackgroundPlayback()
+
+    // Reset AB loop values when video changes
+    viewModel.clearABLoop()
+
+    setIntentExtras(intent.extras)
+
+    // Check if external mpv.conf exists
+    val hasExternalConfig = runCatching {
+      val mpvConfFile = File(filesDir, "mpv.conf")
+      val hasConfig = mpvConfFile.exists() && mpvConfFile.length() > 0
+      if (hasConfig) {
+        Log.d(TAG, "External mpv.conf detected - using it instead of mpvEx preferences")
+      } else {
+        Log.d(TAG, "No external mpv.conf - using mpvEx preferences")
+      }
+      hasConfig
+    }.getOrDefault(false)
+
+    lifecycleScope.launch(Dispatchers.IO) {
+      // Load playback state (will skip track restoration if preferred language configured)
+      val hasState = loadVideoPlaybackState(fileName)
+
+      // Apply track selection logic (defaults only apply when no saved state)
+      trackSelector.onFileLoaded(hasState)
+
+      // Apply default zoom only if there's no saved state
+      if (!hasState) {
+        withContext(Dispatchers.Main) {
+          val zoomPreference = playerPreferences.defaultVideoZoom.get()
+          MPVLib.setPropertyDouble("video-zoom", zoomPreference.toDouble())
+          viewModel.setVideoZoom(zoomPreference)
+        }
+      }
+
+      // Apply saved aspect ratio setting
+      withContext(Dispatchers.Main) {
+        val savedAspect = playerPreferences.defaultVideoAspect.get()
+        val savedCustomRatio = playerPreferences.defaultCustomAspectRatio.get()
+
+        if (savedCustomRatio > 0) {
+          viewModel.setCustomAspectRatio(savedCustomRatio)
+        } else {
+          viewModel.changeVideoAspect(savedAspect, showUpdate = false)
+        }
+      }
+    }
+
+    // Save to recently played when video actually loads and plays
+    lifecycleScope.launch(Dispatchers.IO) {
+      if (playlist.isNotEmpty()) {
+        if (playlistIndex >= 0 && playlistIndex < playlist.size) {
+          saveRecentlyPlayedForUri(playlist[playlistIndex], fileName)
+        } else {
+          Log.w(TAG, "Cannot save recently played: invalid playlist index $playlistIndex (playlist size: ${playlist.size})")
+        }
+      } else {
+        saveRecentlyPlayed()
+      }
+    }
+
+    // Only set orientation immediately if NOT in Video mode
+    if (playerPreferences.orientation.get() != PlayerOrientation.Video) {
+      setOrientation()
+    } else {
+      lifecycleScope.launch {
+        kotlinx.coroutines.delay(100)
+        if (mpvInitialized && !player.isExiting && !isFinishing) {
+          val aspect = player.getVideoOutAspect()
+          Log.d(TAG, "handleFileLoaded - Video mode, aspect after delay: $aspect")
+          if (aspect != null && aspect > 0) {
+            setOrientation()
+          }
+        }
+      }
+    }
+
+    // CRITICAL: Only apply mpvEx subtitle preferences if NO external mpv.conf exists
+    if (!hasExternalConfig) {
+      applySubtitlePreferences()
+      Log.d(TAG, "Applied mpvEx subtitle preferences (no external config)")
+    } else {
+      Log.d(TAG, "Skipped mpvEx subtitle preferences (external config takes priority)")
+    }
+
+    // Don't force media-title for m3u/m3u8 streams - let MPV provide it
+    if (!isCurrentStreamM3U()) {
+      MPVLib.setPropertyString("force-media-title", fileName)
+      viewModel.setMediaTitle(fileName)
+    }
+
+    viewModel.unpause()
+
+    if (subtitlesPreferences.autoloadMatchingSubtitles.get()) {
+      lifecycleScope.launch {
+        val networkFilePath = intent.getStringExtra("network_file_path")
+        val networkConnectionId = intent.getLongExtra("network_connection_id", -1L)
+
+        if (networkFilePath != null && networkConnectionId != -1L) {
           SubtitleOps.autoloadSubtitles(
             videoFilePath = networkFilePath,
             videoFileName = fileName,
             networkConnectionId = networkConnectionId,
           )
         } else {
-          // Regular file or direct network stream
           val filePath = parsePathFromIntent(intent)
           if (filePath != null) {
             SubtitleOps.autoloadSubtitles(
