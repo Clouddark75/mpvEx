@@ -25,7 +25,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,7 +35,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
-import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -45,8 +43,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.drawscope.withTransform
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -124,10 +120,8 @@ fun SeekbarWithTimers(
                 .padding(vertical = 8.dp),
             contentAlignment = Alignment.Center,
         ) {
-            // Área de touch expandida (solo para estilos que no usan Slider interno)
-            val usesExternalTouch = seekbarStyle == SeekbarStyle.Wavy ||
-                    seekbarStyle == SeekbarStyle.Circular ||
-                    seekbarStyle == SeekbarStyle.Simple
+            // Área de touch expandida (solo para Wavy, que no usa Slider interno)
+            val usesExternalTouch = seekbarStyle == SeekbarStyle.Wavy
 
             if (usesExternalTouch) {
                 Box(
@@ -217,39 +211,6 @@ fun SeekbarWithTimers(
                             isPaused = paused,
                             isScrubbing = isUserInteracting,
                             useWavySeekbar = true,
-                            seekbarStyle = SeekbarStyle.Wavy,
-                            onSeek = { },
-                            onSeekFinished = { },
-                            loopStart = loopStart,
-                            loopEnd = loopEnd,
-                        )
-                    }
-                    SeekbarStyle.Circular -> {
-                        SquigglySeekbar(
-                            position = if (isUserInteracting) userPosition else animatedPosition.value,
-                            duration = duration,
-                            readAheadValue = readAheadValue,
-                            chapters = chapters,
-                            isPaused = paused,
-                            isScrubbing = isUserInteracting,
-                            useWavySeekbar = true,
-                            seekbarStyle = SeekbarStyle.Circular,
-                            onSeek = { },
-                            onSeekFinished = { },
-                            loopStart = loopStart,
-                            loopEnd = loopEnd,
-                        )
-                    }
-                    SeekbarStyle.Simple -> {
-                        SquigglySeekbar(
-                            position = if (isUserInteracting) userPosition else animatedPosition.value,
-                            duration = duration,
-                            readAheadValue = readAheadValue,
-                            chapters = chapters,
-                            isPaused = paused,
-                            isScrubbing = isUserInteracting,
-                            useWavySeekbar = false,
-                            seekbarStyle = SeekbarStyle.Simple,
                             onSeek = { },
                             onSeekFinished = { },
                             loopStart = loopStart,
@@ -299,13 +260,11 @@ fun SeekbarWithTimers(
 private fun SquigglySeekbar(
     position: Float,
     duration: Float,
-    // readAheadValue restaurado
     readAheadValue: Float,
     chapters: ImmutableList<Segment>,
     isPaused: Boolean,
     isScrubbing: Boolean,
     useWavySeekbar: Boolean,
-    seekbarStyle: SeekbarStyle,
     onSeek: (Float) -> Unit,
     onSeekFinished: () -> Unit,
     loopStart: Float? = null,
@@ -314,10 +273,6 @@ private fun SquigglySeekbar(
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
     val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
-
-    var isPressed by remember { mutableStateOf(false) }
-    var isDragged by remember { mutableStateOf(false) }
-    val isInteracting = isPressed || isDragged || isScrubbing
 
     var phaseOffset by remember { mutableFloatStateOf(0f) }
     var heightFraction by remember { mutableFloatStateOf(1f) }
@@ -415,46 +370,12 @@ private fun SquigglySeekbar(
         }
 
         val clipTop = lineAmplitude + strokeWidth
-        val gapHalf = 1.dp.toPx()
 
-        // drawPathWithGaps: para wavy usa ticks encima en lugar de cortar la onda,
-        // para Simple/Circular usa gaps reales (línea plana, cortar no afea).
+        // drawPathWithGaps: dibuja continuo; los chapter markers se dibujan como ticks aparte
         fun drawPathWithGaps(startX: Float, endX: Float, color: Color) {
             if (endX <= startX) return
-            if (duration <= 0f || chapters.isEmpty()) {
-                clipRect(left = startX, top = centerY - clipTop, right = endX, bottom = centerY + clipTop) {
-                    drawPath(path = path, color = color, style = Stroke(width = strokeWidth, cap = StrokeCap.Round))
-                }
-                return
-            }
-
-            if (useWavySeekbar) {
-                // Para wavy: dibuja continuo, los chapter markers se dibujan aparte abajo
-                clipRect(left = startX, top = centerY - clipTop, right = endX, bottom = centerY + clipTop) {
-                    drawPath(path = path, color = color, style = Stroke(width = strokeWidth, cap = StrokeCap.Round))
-                }
-            } else {
-                // Para Simple: corta la línea en cada chapter (se ve limpio porque es flat)
-                val gaps = chapters
-                    .map { (it.start / duration).coerceIn(0f, 1f) * totalWidth }
-                    .filter { it in startX..endX }
-                    .sorted()
-                    .map { x -> (x - gapHalf).coerceAtLeast(startX) to (x + gapHalf).coerceAtMost(endX) }
-
-                var segmentStart = startX
-                for ((gapStart, gapEnd) in gaps) {
-                    if (gapStart > segmentStart) {
-                        clipRect(left = segmentStart, top = centerY - clipTop, right = gapStart, bottom = centerY + clipTop) {
-                            drawPath(path = path, color = color, style = Stroke(width = strokeWidth, cap = StrokeCap.Round))
-                        }
-                    }
-                    segmentStart = gapEnd
-                }
-                if (segmentStart < endX) {
-                    clipRect(left = segmentStart, top = centerY - clipTop, right = endX, bottom = centerY + clipTop) {
-                        drawPath(path = path, color = color, style = Stroke(width = strokeWidth, cap = StrokeCap.Round))
-                    }
-                }
+            clipRect(left = startX, top = centerY - clipTop, right = endX, bottom = centerY + clipTop) {
+                drawPath(path = path, color = color, style = Stroke(width = strokeWidth, cap = StrokeCap.Round))
             }
         }
 
@@ -513,22 +434,17 @@ private fun SquigglySeekbar(
             }
         }
 
-        // Thumb
-        if (seekbarStyle == SeekbarStyle.Circular) {
-            val thumbRadius = 10.dp.toPx()
-            drawCircle(color = primaryColor, radius = thumbRadius, center = Offset(totalProgressPx, centerY))
-        } else {
-            val barHalfHeight = (lineAmplitude + strokeWidth)
-            val barWidth = 5.dp.toPx()
-            if (barHalfHeight > 0.5f) {
-                drawLine(
-                    color = primaryColor,
-                    start = Offset(totalProgressPx, centerY - barHalfHeight),
-                    end = Offset(totalProgressPx, centerY + barHalfHeight),
-                    strokeWidth = barWidth,
-                    cap = StrokeCap.Round,
-                )
-            }
+        // Thumb — vertical bar
+        val barHalfHeight = (lineAmplitude + strokeWidth)
+        val barWidth = 5.dp.toPx()
+        if (barHalfHeight > 0.5f) {
+            drawLine(
+                color = primaryColor,
+                start = Offset(totalProgressPx, centerY - barHalfHeight),
+                end = Offset(totalProgressPx, centerY + barHalfHeight),
+                strokeWidth = barWidth,
+                cap = StrokeCap.Round,
+            )
         }
 
         // A-B Loop Indicators
@@ -833,35 +749,6 @@ fun SeekbarPreview(
                     isPaused = false,
                     isScrubbing = false,
                     useWavySeekbar = true,
-                    seekbarStyle = SeekbarStyle.Wavy,
-                    onSeek = {},
-                    onSeekFinished = {},
-                )
-            }
-            SeekbarStyle.Circular -> {
-                SquigglySeekbar(
-                    position = position,
-                    duration = duration,
-                    readAheadValue = position,
-                    chapters = dummyChapters,
-                    isPaused = false,
-                    isScrubbing = false,
-                    useWavySeekbar = true,
-                    seekbarStyle = SeekbarStyle.Circular,
-                    onSeek = {},
-                    onSeekFinished = {},
-                )
-            }
-            SeekbarStyle.Simple -> {
-                SquigglySeekbar(
-                    position = position,
-                    duration = duration,
-                    readAheadValue = position,
-                    chapters = dummyChapters,
-                    isPaused = false,
-                    isScrubbing = false,
-                    useWavySeekbar = false,
-                    seekbarStyle = SeekbarStyle.Simple,
                     onSeek = {},
                     onSeekFinished = {},
                 )
