@@ -169,6 +169,7 @@ fun PlayerControls(
   val pausedForCache by MPVLib.propBoolean["paused-for-cache"].collectAsState()
   val paused by MPVLib.propBoolean["pause"].collectAsState()
   val duration by MPVLib.propInt["duration"].collectAsState()
+  val cacheTime by MPVLib.propFloat["demuxer-cache-time"].collectAsState()
   val position by MPVLib.propInt["time-pos"].collectAsState()
   val precisePosition by viewModel.precisePosition.collectAsState()
   val preciseDuration by viewModel.preciseDuration.collectAsState()
@@ -896,6 +897,7 @@ fun PlayerControls(
           SeekbarWithTimers(
             position = precisePosition,
             duration = if (preciseDuration > 0) preciseDuration else duration?.toFloat() ?: 0f,
+            readAheadValue = precisePosition + (cacheTime ?: 0f),
             onValueChange = {
               if (!isSeeking) {
                 // First drag frame - pause playback
