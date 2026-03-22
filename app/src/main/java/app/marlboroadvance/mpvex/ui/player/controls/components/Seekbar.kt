@@ -59,7 +59,7 @@ import app.marlboroadvance.mpvex.ui.player.controls.LocalPlayerButtonsClickEvent
 import app.marlboroadvance.mpvex.ui.theme.spacing
 import app.marlboroadvance.mpvex.preferences.SeekbarStyle
 import dev.vivvvek.seeker.Segment
-import `is`.xyz.mpv.Utils
+import is.xyz.mpv.Utils
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.delay
@@ -68,478 +68,532 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun SeekbarWithTimers(
-  position: Float,
-  duration: Float,
-  onValueChange: (Float) -> Unit,
-  onValueChangeFinished: () -> Unit,
-  timersInverted: Pair<Boolean, Boolean>,
-  positionTimerOnClick: () -> Unit,
-  durationTimerOnCLick: () -> Unit,
-  chapters: ImmutableList<Segment>,
-  paused: Boolean,
-  seekbarStyle: SeekbarStyle = SeekbarStyle.Wavy,
-  loopStart: Float? = null,
-  loopEnd: Float? = null,
-  modifier: Modifier = Modifier,
+    position: Float,
+    duration: Float,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    timersInverted: Pair<Boolean, Boolean>,
+    positionTimerOnClick: () -> Unit,
+    durationTimerOnCLick: () -> Unit,
+    chapters: ImmutableList<Segment>,
+    paused: Boolean,
+    // readAheadValue restaurado
+    readAheadValue: Float = position,
+    seekbarStyle: SeekbarStyle = SeekbarStyle.Wavy,
+    loopStart: Float? = null,
+    loopEnd: Float? = null,
+    modifier: Modifier = Modifier,
 ) {
-  val clickEvent = LocalPlayerButtonsClickEvent.current
-  var isUserInteracting by remember { mutableStateOf(false) }
-  var userPosition by remember { mutableFloatStateOf(position) }
+    val clickEvent = LocalPlayerButtonsClickEvent.current
+    var isUserInteracting by remember { mutableStateOf(false) }
+    var userPosition by remember { mutableFloatStateOf(position) }
 
-  // Animated position for smooth transitions
-  val animatedPosition = remember { Animatable(position) }
-  val scope = rememberCoroutineScope()
+    val animatedPosition = remember { Animatable(position) }
+    val scope = rememberCoroutineScope()
 
-  // Only animate position updates when user is not interacting
-  LaunchedEffect(position, isUserInteracting) {
-    if (!isUserInteracting && position != animatedPosition.value) {
-      scope.launch {
-        animatedPosition.animateTo(
-          targetValue = position,
-          animationSpec =
-            tween(
-              durationMillis = 200,
-              easing = LinearEasing,
-            ),
-        )
-      }
-    }
-  }
-
-  Row(
-    modifier = modifier.height(48.dp),
-    verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.extraSmall),
-  ) {
-    VideoTimer(
-      value = if (isUserInteracting) userPosition else position,
-      timersInverted.first,
-      onClick = {
-        clickEvent()
-        positionTimerOnClick()
-      },
-      modifier = Modifier.width(92.dp),
-    )
-
-    // Seekbar with expanded touch area
-    Box(
-      modifier =
-        Modifier
-          .weight(1f)
-          .height(48.dp)
-          .padding(vertical = 8.dp), // Add vertical padding for larger touch area
-      contentAlignment = Alignment.Center,
-    ) {
-      // Invisible expanded touch area
-      Box(
-        modifier = Modifier
-          .fillMaxWidth()
-          .height(64.dp) // Larger touch area
-          .pointerInput(Unit) {
-            detectTapGestures(
-              onTap = { offset ->
-                val newPosition = (offset.x / size.width) * duration
-                if (!isUserInteracting) isUserInteracting = true
-                userPosition = newPosition.coerceIn(0f, duration)
-                onValueChange(userPosition)
-                scope.launch { 
-                  // Snap to user position immediately to prevent jumping
-                  animatedPosition.snapTo(userPosition)
-                  isUserInteracting = false
-                  onValueChangeFinished()
-                }
-              }
-            )
-          }
-          .pointerInput(Unit) {
-            detectDragGestures(
-              onDragStart = { 
-                isUserInteracting = true 
-              },
-              onDragEnd = { 
-                scope.launch { 
-                  // Allow a tiny window for mpv/viewModel to sync back before releasing control
-                  delay(50) 
-                  animatedPosition.snapTo(userPosition)
-                  isUserInteracting = false
-                  onValueChangeFinished()
-                }
-              },
-              onDragCancel = { 
-                scope.launch { 
-                  delay(50)
-                  animatedPosition.snapTo(userPosition)
-                  isUserInteracting = false
-                  onValueChangeFinished()
-                }
-              },
-            ) { change, _ ->
-              change.consume()
-              val newPosition = (change.position.x / size.width) * duration
-              userPosition = newPosition.coerceIn(0f, duration)
-              onValueChange(userPosition)
+    LaunchedEffect(position, isUserInteracting) {
+        if (!isUserInteracting && position != animatedPosition.value) {
+            scope.launch {
+                animatedPosition.animateTo(
+                    targetValue = position,
+                    animationSpec = tween(durationMillis = 200, easing = LinearEasing),
+                )
             }
-          }
-      )
-      
-      // Visual seekbar (smaller, centered)
-      Box(
-        modifier = Modifier
-          .fillMaxWidth()
-          .height(32.dp),
-        contentAlignment = Alignment.Center,
-      ) {
-      when (seekbarStyle) {
-        SeekbarStyle.Standard -> {
-          StandardSeekbar(
-            position = if (isUserInteracting) userPosition else animatedPosition.value,
-            duration = duration,
-            chapters = chapters,
-            isPaused = paused,
-            isScrubbing = isUserInteracting,
-            seekbarStyle = SeekbarStyle.Standard,
-            onSeek = { newPosition ->
-              if (!isUserInteracting) isUserInteracting = true
-              userPosition = newPosition
-              onValueChange(newPosition)
-            },
-            onSeekFinished = {
-              scope.launch { animatedPosition.snapTo(userPosition) }
-              isUserInteracting = false
-              onValueChangeFinished()
-            },
-            loopStart = loopStart,
-            loopEnd = loopEnd,
-          )
         }
-        SeekbarStyle.Wavy -> {
-          SquigglySeekbar(
-            position = if (isUserInteracting) userPosition else animatedPosition.value,
-            duration = duration,
-            chapters = chapters,
-            isPaused = paused,
-            isScrubbing = isUserInteracting,
-            useWavySeekbar = true,
-            seekbarStyle = SeekbarStyle.Wavy,
-            onSeek = { }, // Touch handled by parent
-            onSeekFinished = { }, // Touch handled by parent
-            loopStart = loopStart,
-            loopEnd = loopEnd,
-          )
-        }
-        SeekbarStyle.Thick -> {
-          StandardSeekbar(
-            position = if (isUserInteracting) userPosition else animatedPosition.value,
-            duration = duration,
-            chapters = chapters,
-            isPaused = paused,
-            isScrubbing = isUserInteracting,
-            seekbarStyle = SeekbarStyle.Thick,
-            onSeek = { newPosition ->
-              if (!isUserInteracting) isUserInteracting = true
-              userPosition = newPosition
-              onValueChange(newPosition)
-            },
-            onSeekFinished = {
-              scope.launch { animatedPosition.snapTo(userPosition) }
-              isUserInteracting = false
-              onValueChangeFinished()
-            },
-            loopStart = loopStart,
-            loopEnd = loopEnd,
-          )
-        }
-      }
     }
-  }
 
-    VideoTimer(
-      value = if (timersInverted.second) position - duration else duration,
-      isInverted = timersInverted.second,
-      onClick = {
-        clickEvent()
-        durationTimerOnCLick()
-      },
-      modifier = Modifier.width(92.dp),
-    )
-  }
+    Row(
+        modifier = modifier.height(48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.extraSmall),
+    ) {
+        VideoTimer(
+            value = if (isUserInteracting) userPosition else position,
+            timersInverted.first,
+            onClick = {
+                clickEvent()
+                positionTimerOnClick()
+            },
+            modifier = Modifier.width(92.dp),
+        )
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(48.dp)
+                .padding(vertical = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            // Área de touch expandida (solo para estilos que no usan Slider interno)
+            val usesExternalTouch = seekbarStyle == SeekbarStyle.Wavy ||
+                    seekbarStyle == SeekbarStyle.Circular ||
+                    seekbarStyle == SeekbarStyle.Simple
+
+            if (usesExternalTouch) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(64.dp)
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onTap = { offset ->
+                                    val newPosition = (offset.x / size.width) * duration
+                                    if (!isUserInteracting) isUserInteracting = true
+                                    userPosition = newPosition.coerceIn(0f, duration)
+                                    onValueChange(userPosition)
+                                    scope.launch {
+                                        animatedPosition.snapTo(userPosition)
+                                        isUserInteracting = false
+                                        onValueChangeFinished()
+                                    }
+                                }
+                            )
+                        }
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = { isUserInteracting = true },
+                                onDragEnd = {
+                                    scope.launch {
+                                        delay(50)
+                                        animatedPosition.snapTo(userPosition)
+                                        isUserInteracting = false
+                                        onValueChangeFinished()
+                                    }
+                                },
+                                onDragCancel = {
+                                    scope.launch {
+                                        delay(50)
+                                        animatedPosition.snapTo(userPosition)
+                                        isUserInteracting = false
+                                        onValueChangeFinished()
+                                    }
+                                },
+                            ) { change, _ ->
+                                change.consume()
+                                val newPosition = (change.position.x / size.width) * duration
+                                userPosition = newPosition.coerceIn(0f, duration)
+                                onValueChange(userPosition)
+                            }
+                        }
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(32.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                when (seekbarStyle) {
+                    SeekbarStyle.Standard -> {
+                        StandardSeekbar(
+                            position = if (isUserInteracting) userPosition else animatedPosition.value,
+                            duration = duration,
+                            readAheadValue = readAheadValue,
+                            chapters = chapters,
+                            isPaused = paused,
+                            isScrubbing = isUserInteracting,
+                            seekbarStyle = SeekbarStyle.Standard,
+                            onSeek = { newPosition ->
+                                if (!isUserInteracting) isUserInteracting = true
+                                userPosition = newPosition
+                                onValueChange(newPosition)
+                            },
+                            onSeekFinished = {
+                                scope.launch { animatedPosition.snapTo(userPosition) }
+                                isUserInteracting = false
+                                onValueChangeFinished()
+                            },
+                            loopStart = loopStart,
+                            loopEnd = loopEnd,
+                        )
+                    }
+                    SeekbarStyle.Wavy -> {
+                        SquigglySeekbar(
+                            position = if (isUserInteracting) userPosition else animatedPosition.value,
+                            duration = duration,
+                            readAheadValue = readAheadValue,
+                            chapters = chapters,
+                            isPaused = paused,
+                            isScrubbing = isUserInteracting,
+                            useWavySeekbar = true,
+                            seekbarStyle = SeekbarStyle.Wavy,
+                            onSeek = { },
+                            onSeekFinished = { },
+                            loopStart = loopStart,
+                            loopEnd = loopEnd,
+                        )
+                    }
+                    SeekbarStyle.Circular -> {
+                        SquigglySeekbar(
+                            position = if (isUserInteracting) userPosition else animatedPosition.value,
+                            duration = duration,
+                            readAheadValue = readAheadValue,
+                            chapters = chapters,
+                            isPaused = paused,
+                            isScrubbing = isUserInteracting,
+                            useWavySeekbar = true,
+                            seekbarStyle = SeekbarStyle.Circular,
+                            onSeek = { },
+                            onSeekFinished = { },
+                            loopStart = loopStart,
+                            loopEnd = loopEnd,
+                        )
+                    }
+                    SeekbarStyle.Simple -> {
+                        SquigglySeekbar(
+                            position = if (isUserInteracting) userPosition else animatedPosition.value,
+                            duration = duration,
+                            readAheadValue = readAheadValue,
+                            chapters = chapters,
+                            isPaused = paused,
+                            isScrubbing = isUserInteracting,
+                            useWavySeekbar = false,
+                            seekbarStyle = SeekbarStyle.Simple,
+                            onSeek = { },
+                            onSeekFinished = { },
+                            loopStart = loopStart,
+                            loopEnd = loopEnd,
+                        )
+                    }
+                    SeekbarStyle.Thick -> {
+                        StandardSeekbar(
+                            position = if (isUserInteracting) userPosition else animatedPosition.value,
+                            duration = duration,
+                            readAheadValue = readAheadValue,
+                            chapters = chapters,
+                            isPaused = paused,
+                            isScrubbing = isUserInteracting,
+                            seekbarStyle = SeekbarStyle.Thick,
+                            onSeek = { newPosition ->
+                                if (!isUserInteracting) isUserInteracting = true
+                                userPosition = newPosition
+                                onValueChange(newPosition)
+                            },
+                            onSeekFinished = {
+                                scope.launch { animatedPosition.snapTo(userPosition) }
+                                isUserInteracting = false
+                                onValueChangeFinished()
+                            },
+                            loopStart = loopStart,
+                            loopEnd = loopEnd,
+                        )
+                    }
+                }
+            }
+        }
+
+        VideoTimer(
+            value = if (timersInverted.second) position - duration else duration,
+            isInverted = timersInverted.second,
+            onClick = {
+                clickEvent()
+                durationTimerOnCLick()
+            },
+            modifier = Modifier.width(92.dp),
+        )
+    }
 }
 
 @Composable
 private fun SquigglySeekbar(
-  position: Float,
-  duration: Float,
-  chapters: ImmutableList<Segment>,
-  isPaused: Boolean,
-  isScrubbing: Boolean,
-  useWavySeekbar: Boolean,
-  seekbarStyle: SeekbarStyle,
-  onSeek: (Float) -> Unit,
-  onSeekFinished: () -> Unit,
-  loopStart: Float? = null,
-  loopEnd: Float? = null,
-  modifier: Modifier = Modifier,
+    position: Float,
+    duration: Float,
+    // readAheadValue restaurado
+    readAheadValue: Float,
+    chapters: ImmutableList<Segment>,
+    isPaused: Boolean,
+    isScrubbing: Boolean,
+    useWavySeekbar: Boolean,
+    seekbarStyle: SeekbarStyle,
+    onSeek: (Float) -> Unit,
+    onSeekFinished: () -> Unit,
+    loopStart: Float? = null,
+    loopEnd: Float? = null,
+    modifier: Modifier = Modifier,
 ) {
-  val primaryColor = MaterialTheme.colorScheme.primary
-  val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
 
-  // Manual Interaction State Tracking
-  var isPressed by remember { mutableStateOf(false) }
-  var isDragged by remember { mutableStateOf(false) }
-  val isInteracting = isPressed || isDragged || isScrubbing 
+    var isPressed by remember { mutableStateOf(false) }
+    var isDragged by remember { mutableStateOf(false) }
+    val isInteracting = isPressed || isDragged || isScrubbing
 
-  // Animation state
-  var phaseOffset by remember { mutableFloatStateOf(0f) }
-  var heightFraction by remember { mutableFloatStateOf(1f) }
+    var phaseOffset by remember { mutableFloatStateOf(0f) }
+    var heightFraction by remember { mutableFloatStateOf(1f) }
 
-  val scope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
 
-  // Wave parameters
-  val waveLength = 80f
-  val lineAmplitude = if (useWavySeekbar) 6f else 0f
-  val phaseSpeed = 10f // px per second
-  val transitionPeriods = 1.5f
-  val minWaveEndpoint = 0f
-  val matchedWaveEndpoint = 1f
-  val transitionEnabled = true
+    val waveLength = 80f
+    val lineAmplitude = if (useWavySeekbar) 6f else 0f
+    val phaseSpeed = 10f
+    val transitionPeriods = 1.5f
+    val minWaveEndpoint = 0f
+    val matchedWaveEndpoint = 1f
+    val transitionEnabled = true
 
-  // Animate height fraction based on paused state and scrubbing state
-  LaunchedEffect(isPaused, isScrubbing, useWavySeekbar) {
-    if (!useWavySeekbar) {
-      heightFraction = 0f
-      return@LaunchedEffect
+    LaunchedEffect(isPaused, isScrubbing, useWavySeekbar) {
+        if (!useWavySeekbar) {
+            heightFraction = 0f
+            return@LaunchedEffect
+        }
+        scope.launch {
+            val shouldFlatten = isPaused || isScrubbing
+            val targetHeight = if (shouldFlatten) 0f else 1f
+            val animDuration = if (shouldFlatten) 550 else 800
+            val startDelay = if (shouldFlatten) 0L else 60L
+            kotlinx.coroutines.delay(startDelay)
+            val animator = Animatable(heightFraction)
+            animator.animateTo(
+                targetValue = targetHeight,
+                animationSpec = tween(durationMillis = animDuration, easing = LinearEasing),
+            ) { heightFraction = value }
+        }
     }
 
-    scope.launch {
-      val shouldFlatten = isPaused || isScrubbing
-      val targetHeight = if (shouldFlatten) 0f else 1f
-      val duration = if (shouldFlatten) 550 else 800
-      val startDelay = if (shouldFlatten) 0L else 60L
-
-      kotlinx.coroutines.delay(startDelay)
-
-      val animator = Animatable(heightFraction)
-      animator.animateTo(
-        targetValue = targetHeight,
-        animationSpec =
-          tween(
-            durationMillis = duration,
-            easing = LinearEasing,
-          ),
-      ) {
-        heightFraction = value
-      }
-    }
-  }
-
-  // Animate wave movement only when not paused
-  LaunchedEffect(isPaused, useWavySeekbar) {
-    if (isPaused || !useWavySeekbar) return@LaunchedEffect
-
-    var lastFrameTime = withFrameMillis { it }
-    while (isActive) {
-      withFrameMillis { frameTimeMillis ->
-        val deltaTime = (frameTimeMillis - lastFrameTime) / 1000f
-        phaseOffset += deltaTime * phaseSpeed
-        phaseOffset %= waveLength
-        lastFrameTime = frameTimeMillis
-      }
-    }
-  }
-
-  Canvas(
-    modifier =
-      modifier
-        .fillMaxWidth()
-        .height(48.dp),
-  ) {
-    val strokeWidth = 5.dp.toPx()
-    val progress = if (duration > 0f) (position / duration).coerceIn(0f, 1f) else 0f
-    val totalWidth = size.width
-    val totalProgressPx = totalWidth * progress
-    val centerY = size.height / 2f
-
-    // Calculate wave progress
-    val waveProgressPx =
-      if (!transitionEnabled || progress > matchedWaveEndpoint) {
-        totalWidth * progress
-      } else {
-        val t = (progress / matchedWaveEndpoint).coerceIn(0f, 1f)
-        totalWidth * (minWaveEndpoint + (matchedWaveEndpoint - minWaveEndpoint) * t)
-      }
-
-    // Helper function to compute amplitude
-    fun computeAmplitude(
-      x: Float,
-      sign: Float,
-    ): Float =
-      if (transitionEnabled) {
-        val length = transitionPeriods * waveLength
-        val coeff = ((waveProgressPx + length / 2f - x) / length).coerceIn(0f, 1f)
-        sign * heightFraction * lineAmplitude * coeff
-      } else {
-        sign * heightFraction * lineAmplitude
-      }
-
-    // Build wavy path for played portion
-    val path = Path()
-    val waveStart = -phaseOffset - waveLength / 2f
-    val waveEnd = if (transitionEnabled) totalWidth else waveProgressPx
-
-    path.moveTo(waveStart, centerY)
-
-    var currentX = waveStart
-    var waveSign = 1f
-    var currentAmp = computeAmplitude(currentX, waveSign)
-    val dist = waveLength / 2f
-
-    while (currentX < waveEnd) {
-      waveSign = -waveSign
-      val nextX = currentX + dist
-      val midX = currentX + dist / 2f
-      val nextAmp = computeAmplitude(nextX, waveSign)
-
-      path.cubicTo(
-        midX,
-        centerY + currentAmp,
-        midX,
-        centerY + nextAmp,
-        nextX,
-        centerY + nextAmp,
-      )
-
-      currentAmp = nextAmp
-      currentX = nextX
+    LaunchedEffect(isPaused, useWavySeekbar) {
+        if (isPaused || !useWavySeekbar) return@LaunchedEffect
+        var lastFrameTime = withFrameMillis { it }
+        while (isActive) {
+            withFrameMillis { frameTimeMillis ->
+                val deltaTime = (frameTimeMillis - lastFrameTime) / 1000f
+                phaseOffset += deltaTime * phaseSpeed
+                phaseOffset %= waveLength
+                lastFrameTime = frameTimeMillis
+            }
+        }
     }
 
-    // Draw path up to progress position using clipping
-    val clipTop = lineAmplitude + strokeWidth
-
-    fun drawPathWithGaps(
-      startX: Float,
-      endX: Float,
-      color: Color,
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(48.dp),
     ) {
-      if (endX <= startX) return
-      // Chapter markers removed - draw continuous path
-      clipRect(
-        left = startX,
-        top = centerY - clipTop,
-        right = endX,
-        bottom = centerY + clipTop,
-      ) {
-        drawPath(
-          path = path,
-          color = color,
-          style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
+        val strokeWidth = 5.dp.toPx()
+        val progress = if (duration > 0f) (position / duration).coerceIn(0f, 1f) else 0f
+        val readAheadProgress = if (duration > 0f) (readAheadValue / duration).coerceIn(0f, 1f) else 0f
+        val totalWidth = size.width
+        val totalProgressPx = totalWidth * progress
+        val totalReadAheadPx = totalWidth * readAheadProgress
+        val centerY = size.height / 2f
+
+        val waveProgressPx = if (!transitionEnabled || progress > matchedWaveEndpoint) {
+            totalWidth * progress
+        } else {
+            val t = (progress / matchedWaveEndpoint).coerceIn(0f, 1f)
+            totalWidth * (minWaveEndpoint + (matchedWaveEndpoint - minWaveEndpoint) * t)
+        }
+
+        fun computeAmplitude(x: Float, sign: Float): Float =
+            if (transitionEnabled) {
+                val length = transitionPeriods * waveLength
+                val coeff = ((waveProgressPx + length / 2f - x) / length).coerceIn(0f, 1f)
+                sign * heightFraction * lineAmplitude * coeff
+            } else {
+                sign * heightFraction * lineAmplitude
+            }
+
+        val path = Path()
+        val waveStart = -phaseOffset - waveLength / 2f
+        val waveEnd = if (transitionEnabled) totalWidth else waveProgressPx
+
+        path.moveTo(waveStart, centerY)
+
+        var currentX = waveStart
+        var waveSign = 1f
+        var currentAmp = computeAmplitude(currentX, waveSign)
+        val dist = waveLength / 2f
+
+        while (currentX < waveEnd) {
+            waveSign = -waveSign
+            val nextX = currentX + dist
+            val midX = currentX + dist / 2f
+            val nextAmp = computeAmplitude(nextX, waveSign)
+            path.cubicTo(midX, centerY + currentAmp, midX, centerY + nextAmp, nextX, centerY + nextAmp)
+            currentAmp = nextAmp
+            currentX = nextX
+        }
+
+        val clipTop = lineAmplitude + strokeWidth
+        val gapHalf = 1.dp.toPx()
+
+        // drawPathWithGaps: para wavy usa ticks encima en lugar de cortar la onda,
+        // para Simple/Circular usa gaps reales (línea plana, cortar no afea).
+        fun drawPathWithGaps(startX: Float, endX: Float, color: Color) {
+            if (endX <= startX) return
+            if (duration <= 0f || chapters.isEmpty()) {
+                clipRect(left = startX, top = centerY - clipTop, right = endX, bottom = centerY + clipTop) {
+                    drawPath(path = path, color = color, style = Stroke(width = strokeWidth, cap = StrokeCap.Round))
+                }
+                return
+            }
+
+            if (useWavySeekbar) {
+                // Para wavy: dibuja continuo, los chapter markers se dibujan aparte abajo
+                clipRect(left = startX, top = centerY - clipTop, right = endX, bottom = centerY + clipTop) {
+                    drawPath(path = path, color = color, style = Stroke(width = strokeWidth, cap = StrokeCap.Round))
+                }
+            } else {
+                // Para Simple: corta la línea en cada chapter (se ve limpio porque es flat)
+                val gaps = chapters
+                    .map { (it.start / duration).coerceIn(0f, 1f) * totalWidth }
+                    .filter { it in startX..endX }
+                    .sorted()
+                    .map { x -> (x - gapHalf).coerceAtLeast(startX) to (x + gapHalf).coerceAtMost(endX) }
+
+                var segmentStart = startX
+                for ((gapStart, gapEnd) in gaps) {
+                    if (gapStart > segmentStart) {
+                        clipRect(left = segmentStart, top = centerY - clipTop, right = gapStart, bottom = centerY + clipTop) {
+                            drawPath(path = path, color = color, style = Stroke(width = strokeWidth, cap = StrokeCap.Round))
+                        }
+                    }
+                    segmentStart = gapEnd
+                }
+                if (segmentStart < endX) {
+                    clipRect(left = segmentStart, top = centerY - clipTop, right = endX, bottom = centerY + clipTop) {
+                        drawPath(path = path, color = color, style = Stroke(width = strokeWidth, cap = StrokeCap.Round))
+                    }
+                }
+            }
+        }
+
+        // Played segment
+        drawPathWithGaps(0f, totalProgressPx, primaryColor)
+
+        // Buffer (readAhead) segment — restaurado
+        if (totalReadAheadPx > totalProgressPx) {
+            val bufferAlpha = 0.5f
+            drawPathWithGaps(totalProgressPx, totalReadAheadPx, primaryColor.copy(alpha = bufferAlpha))
+        }
+
+        if (transitionEnabled) {
+            val disabledAlpha = 77f / 255f
+            val unplayedStart = maxOf(totalProgressPx, totalReadAheadPx)
+            drawPathWithGaps(unplayedStart, totalWidth, primaryColor.copy(alpha = disabledAlpha))
+        } else {
+            val flatLineStart = maxOf(totalProgressPx, totalReadAheadPx)
+            drawLine(
+                color = surfaceVariant.copy(alpha = 0.4f),
+                start = Offset(flatLineStart, centerY),
+                end = Offset(totalWidth, centerY),
+                strokeWidth = strokeWidth,
+                cap = StrokeCap.Round,
+            )
+        }
+
+        // Round cap at start
+        val startAmp = kotlin.math.cos(kotlin.math.abs(waveStart) / waveLength * (2f * kotlin.math.PI.toFloat()))
+        drawCircle(
+            color = primaryColor,
+            radius = strokeWidth / 2f,
+            center = Offset(0f, centerY + startAmp * lineAmplitude * heightFraction),
         )
-      }
+
+        // Chapter markers — restaurados como ticks verticales sobre la onda
+        if (chapters.isNotEmpty() && duration > 0f) {
+            val tickHalfHeight = clipTop + 2.dp.toPx()
+            val tickWidth = 2.dp.toPx()
+            // Primer chapter en start=0 no se dibuja (es el inicio de la barra)
+            for (chapter in chapters) {
+                if (chapter.start <= 0f) continue
+                val chapterPx = (chapter.start / duration).coerceIn(0f, 1f) * totalWidth
+                val chapterColor = when {
+                    chapterPx <= totalProgressPx -> primaryColor  // en zona played: mismo color primary
+                    chapterPx <= totalReadAheadPx -> primaryColor.copy(alpha = 0.5f)  // en buffer
+                    else -> primaryColor.copy(alpha = 77f / 255f)  // en zona unplayed
+                }
+                drawLine(
+                    color = chapterColor,
+                    start = Offset(chapterPx, centerY - tickHalfHeight),
+                    end = Offset(chapterPx, centerY + tickHalfHeight),
+                    strokeWidth = tickWidth,
+                    cap = StrokeCap.Round,
+                )
+            }
+        }
+
+        // Thumb
+        if (seekbarStyle == SeekbarStyle.Circular) {
+            val thumbRadius = 10.dp.toPx()
+            drawCircle(color = primaryColor, radius = thumbRadius, center = Offset(totalProgressPx, centerY))
+        } else {
+            val barHalfHeight = (lineAmplitude + strokeWidth)
+            val barWidth = 5.dp.toPx()
+            if (barHalfHeight > 0.5f) {
+                drawLine(
+                    color = primaryColor,
+                    start = Offset(totalProgressPx, centerY - barHalfHeight),
+                    end = Offset(totalProgressPx, centerY + barHalfHeight),
+                    strokeWidth = barWidth,
+                    cap = StrokeCap.Round,
+                )
+            }
+        }
+
+        // A-B Loop Indicators
+        if (loopStart != null || loopEnd != null) {
+            val loopColor = Color(0xFFFFB300)
+            val markerWidth = 2.dp.toPx()
+
+            if (loopStart != null && duration > 0f) {
+                val startPx = (loopStart / duration).coerceIn(0f, 1f) * totalWidth
+                drawLine(
+                    color = loopColor,
+                    start = Offset(startPx, centerY - lineAmplitude - strokeWidth),
+                    end = Offset(startPx, centerY + lineAmplitude + strokeWidth),
+                    strokeWidth = markerWidth,
+                )
+            }
+
+            if (loopEnd != null && duration > 0f) {
+                val endPx = (loopEnd / duration).coerceIn(0f, 1f) * totalWidth
+                drawLine(
+                    color = loopColor,
+                    start = Offset(endPx, centerY - lineAmplitude - strokeWidth),
+                    end = Offset(endPx, centerY + lineAmplitude + strokeWidth),
+                    strokeWidth = markerWidth,
+                )
+            }
+
+            if (loopStart != null && loopEnd != null && duration > 0f) {
+                val minPx = (minOf(loopStart, loopEnd) / duration).coerceIn(0f, 1f) * totalWidth
+                val maxPx = (maxOf(loopStart, loopEnd) / duration).coerceIn(0f, 1f) * totalWidth
+                drawRect(
+                    color = loopColor.copy(alpha = 0.2f),
+                    topLeft = Offset(minPx, centerY - lineAmplitude - strokeWidth),
+                    size = Size(maxPx - minPx, (lineAmplitude + strokeWidth) * 2),
+                )
+            }
+        }
     }
-
-    // Played segment
-    drawPathWithGaps(0f, totalProgressPx, primaryColor)
-
-    if (transitionEnabled) {
-      val disabledAlpha = 77f / 255f
-      drawPathWithGaps(totalProgressPx, totalWidth, primaryColor.copy(alpha = disabledAlpha))
-    } else {
-      drawLine(
-        color = surfaceVariant.copy(alpha = 0.4f),
-        start = Offset(totalProgressPx, centerY),
-        end = Offset(totalWidth, centerY),
-        strokeWidth = strokeWidth,
-        cap = StrokeCap.Round,
-      )
-    }
-
-    // Draw round cap
-    val startAmp = kotlin.math.cos(kotlin.math.abs(waveStart) / waveLength * (2f * kotlin.math.PI.toFloat()))
-    drawCircle(
-      color = primaryColor,
-      radius = strokeWidth / 2f,
-      center = Offset(0f, centerY + startAmp * lineAmplitude * heightFraction),
-    )
-
-    // Vertical Bar Thumb
-    val barHalfHeight = (lineAmplitude + strokeWidth)
-    val barWidth = 5.dp.toPx()
-
-    if (barHalfHeight > 0.5f) {
-        drawLine(
-          color = primaryColor,
-          start = Offset(totalProgressPx, centerY - barHalfHeight),
-          end = Offset(totalProgressPx, centerY + barHalfHeight),
-          strokeWidth = barWidth,
-          cap = StrokeCap.Round,
-        )
-    }
-
-    // A-B Loop Indicators for SquigglySeekbar
-    if (loopStart != null || loopEnd != null) {
-      val loopColor = Color(0xFFFFB300)
-      val markerWidth = 2.dp.toPx()
-
-      if (loopStart != null && duration > 0f) {
-        val startPx = (loopStart / duration).coerceIn(0f, 1f) * totalWidth
-        drawLine(
-          color = loopColor,
-          start = Offset(startPx, centerY - lineAmplitude - strokeWidth),
-          end = Offset(startPx, centerY + lineAmplitude + strokeWidth),
-          strokeWidth = markerWidth,
-        )
-      }
-
-      if (loopEnd != null && duration > 0f) {
-        val endPx = (loopEnd / duration).coerceIn(0f, 1f) * totalWidth
-        drawLine(
-          color = loopColor,
-          start = Offset(endPx, centerY - lineAmplitude - strokeWidth),
-          end = Offset(endPx, centerY + lineAmplitude + strokeWidth),
-          strokeWidth = markerWidth,
-        )
-      }
-
-      if (loopStart != null && loopEnd != null && duration > 0f) {
-        val minPx = (minOf(loopStart, loopEnd) / duration).coerceIn(0f, 1f) * totalWidth
-        val maxPx = (maxOf(loopStart, loopEnd) / duration).coerceIn(0f, 1f) * totalWidth
-        drawRect(
-          color = loopColor.copy(alpha = 0.2f),
-          topLeft = Offset(minPx, centerY - lineAmplitude - strokeWidth),
-          size = Size(maxPx - minPx, (lineAmplitude + strokeWidth) * 2),
-        )
-      }
-    }
-  }
 }
 
 @Composable
 fun VideoTimer(
-  value: Float,
-  isInverted: Boolean,
-  modifier: Modifier = Modifier,
-  onClick: () -> Unit = {},
+    value: Float,
+    isInverted: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit = {},
 ) {
-  val interactionSource = remember { MutableInteractionSource() }
-  Text(
-    modifier =
-      modifier
-        .fillMaxHeight()
-        .clickable(
-          interactionSource = interactionSource,
-          indication = ripple(),
-          onClick = onClick,
-        )
-        .wrapContentHeight(Alignment.CenterVertically),
-    text = Utils.prettyTime(value.toInt(), isInverted),
-    color = Color.White,
-    textAlign = TextAlign.Center,
-  )
+    val interactionSource = remember { MutableInteractionSource() }
+    Text(
+        modifier = modifier
+            .fillMaxHeight()
+            .clickable(interactionSource = interactionSource, indication = ripple(), onClick = onClick)
+            .wrapContentHeight(Alignment.CenterVertically),
+        text = Utils.prettyTime(value.toInt(), isInverted),
+        color = Color.White,
+        textAlign = TextAlign.Center,
+    )
 }
 
 @Composable
 fun StandardSeekbar(
     position: Float,
     duration: Float,
+    // readAheadValue restaurado
+    readAheadValue: Float,
     chapters: ImmutableList<Segment>,
     isPaused: Boolean = false,
     isScrubbing: Boolean = false,
@@ -553,37 +607,28 @@ fun StandardSeekbar(
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
     val interactionSource = remember { MutableInteractionSource() }
-    
-    // Animation state (same as SquigglySeekbar)
+
     var heightFraction by remember { mutableFloatStateOf(1f) }
     val scope = rememberCoroutineScope()
-    
-    // Animate height fraction based on paused state and scrubbing state (same as SquigglySeekbar)
+
     LaunchedEffect(isPaused, isScrubbing) {
         scope.launch {
             val shouldFlatten = isPaused || isScrubbing
-            val targetHeight = if (shouldFlatten) 0.7f else 1f // Slightly less dramatic for standard seekbar
+            val targetHeight = if (shouldFlatten) 0.7f else 1f
             val animationDuration = if (shouldFlatten) 550 else 800
             val startDelay = if (shouldFlatten) 0L else 60L
-
             kotlinx.coroutines.delay(startDelay)
-
             val animator = Animatable(heightFraction)
             animator.animateTo(
                 targetValue = targetHeight,
-                animationSpec = tween(
-                    durationMillis = animationDuration,
-                    easing = LinearEasing,
-                ),
-            ) {
-                heightFraction = value
-            }
+                animationSpec = tween(durationMillis = animationDuration, easing = LinearEasing),
+            ) { heightFraction = value }
         }
     }
-    
+
     val isThick = seekbarStyle == SeekbarStyle.Thick
     val baseTrackHeight = if (isThick) 16.dp else 8.dp
-    val trackHeightDp = baseTrackHeight * heightFraction // Apply animation to track height
+    val trackHeightDp = baseTrackHeight * heightFraction
     val thumbWidth = 6.dp
     val thumbHeight = if (isThick) 16.dp else 24.dp
     val thumbShape = if (isThick) RoundedCornerShape(thumbWidth / 2) else CircleShape
@@ -597,6 +642,7 @@ fun StandardSeekbar(
         interactionSource = interactionSource,
         track = { sliderState ->
             val disabledAlpha = 0.3f
+            val bufferAlpha = 0.5f
 
             Canvas(
                 modifier = Modifier
@@ -608,160 +654,243 @@ fun StandardSeekbar(
                 val range = (max - min).takeIf { it > 0f } ?: 1f
 
                 val playedFraction = ((sliderState.value - min) / range).coerceIn(0f, 1f)
+                val readAheadFraction = ((readAheadValue - min) / range).coerceIn(0f, 1f)
 
                 val playedPx = size.width * playedFraction
+                val readAheadPx = size.width * readAheadFraction
                 val trackHeight = size.height
-                
-                // Radius for the outer ends of the seekbar
+
                 val outerRadius = trackHeight / 2f
-                
-                // MODIFIED: For Thick style, inner corners now match the outer rounding
                 val innerRadius = if (isThick) outerRadius else 2.dp.toPx()
-                
+
                 val thumbTrackGapSize = 14.dp.toPx()
                 val gapHalf = thumbTrackGapSize / 2f
                 val chapterGapHalf = 1.dp.toPx()
-                
+
                 val thumbGapStart = (playedPx - gapHalf).coerceIn(0f, size.width)
                 val thumbGapEnd = (playedPx + gapHalf).coerceIn(0f, size.width)
-                
-                // Chapter markers removed
-                val chapterGaps = emptyList<Pair<Float, Float>>()
-                
+
+                // Chapter gaps restaurados
+                val chapterGaps = chapters
+                    .map { (it.start / duration).coerceIn(0f, 1f) * size.width }
+                    .filter { it > 0f && it < size.width }
+                    .map { x -> (x - chapterGapHalf) to (x + chapterGapHalf) }
+
                 fun drawSegment(startX: Float, endX: Float, color: Color) {
                     if (endX - startX < 0.5f) return
-                    
                     val path = Path()
                     val isOuterLeft = startX <= 0.5f
                     val isInnerLeft = kotlin.math.abs(startX - thumbGapEnd) < 0.5f
-                    
                     val cornerRadiusLeft = when {
                         isOuterLeft -> androidx.compose.ui.geometry.CornerRadius(outerRadius)
                         isInnerLeft -> androidx.compose.ui.geometry.CornerRadius(innerRadius)
                         else -> androidx.compose.ui.geometry.CornerRadius.Zero
                     }
-
                     val isOuterRight = endX >= size.width - 0.5f
                     val isInnerRight = kotlin.math.abs(endX - thumbGapStart) < 0.5f
-
                     val cornerRadiusRight = when {
                         isOuterRight -> androidx.compose.ui.geometry.CornerRadius(outerRadius)
                         isInnerRight -> androidx.compose.ui.geometry.CornerRadius(innerRadius)
                         else -> androidx.compose.ui.geometry.CornerRadius.Zero
                     }
-                    
                     path.addRoundRect(
                         androidx.compose.ui.geometry.RoundRect(
-                            left = startX,
-                            top = 0f,
-                            right = endX,
-                            bottom = trackHeight,
+                            left = startX, top = 0f, right = endX, bottom = trackHeight,
                             topLeftCornerRadius = cornerRadiusLeft,
                             bottomLeftCornerRadius = cornerRadiusLeft,
                             topRightCornerRadius = cornerRadiusRight,
-                            bottomRightCornerRadius = cornerRadiusRight
+                            bottomRightCornerRadius = cornerRadiusRight,
                         )
                     )
                     drawPath(path, color)
                 }
-                
-                fun drawRangeWithGaps(
-                    rangeStart: Float, 
-                    rangeEnd: Float, 
-                    gaps: List<Pair<Float, Float>>, 
-                    color: Color
-                ) {
+
+                fun drawRangeWithGaps(rangeStart: Float, rangeEnd: Float, gaps: List<Pair<Float, Float>>, color: Color) {
                     if (rangeEnd <= rangeStart) return
                     val relevantGaps = gaps
                         .filter { (gStart, gEnd) -> gEnd > rangeStart && gStart < rangeEnd }
                         .sortedBy { it.first }
-                    
                     var currentPos = rangeStart
                     for ((gStart, gEnd) in relevantGaps) {
                         val segmentEnd = gStart.coerceAtMost(rangeEnd)
-                        if (segmentEnd > currentPos) {
-                            drawSegment(currentPos, segmentEnd, color)
-                        }
+                        if (segmentEnd > currentPos) drawSegment(currentPos, segmentEnd, color)
                         currentPos = gEnd.coerceAtLeast(currentPos)
                     }
-                    if (currentPos < rangeEnd) {
-                        drawSegment(currentPos, rangeEnd, color)
-                    }
+                    if (currentPos < rangeEnd) drawSegment(currentPos, rangeEnd, color)
                 }
-                
+
                 // 1. Unplayed Background
                 drawRangeWithGaps(thumbGapEnd, size.width, chapterGaps, primaryColor.copy(alpha = disabledAlpha))
-                
-                // 2. Played
+
+                // 2. Buffer (readAhead) — restaurado
+                if (readAheadPx > thumbGapEnd) {
+                    drawRangeWithGaps(thumbGapEnd, readAheadPx, chapterGaps, primaryColor.copy(alpha = bufferAlpha))
+                }
+
+                // 3. Played
                 if (thumbGapStart > 0) {
                     drawRangeWithGaps(0f, thumbGapStart, chapterGaps, primaryColor)
                 }
 
-                // 3. A-B Loop Indicators
+                // 4. A-B Loop Indicators
                 if (loopStart != null || loopEnd != null) {
-                    val loopColor = Color(0xFFFFB300) // Amber/Gold color for loop
+                    val loopColor = Color(0xFFFFB300)
                     val markerWidth = 2.dp.toPx()
-                    
-                    // Draw loop start marker
+
                     if (loopStart != null) {
                         val startPx = (loopStart / duration).coerceIn(0f, 1f) * size.width
-                        drawLine(
-                            color = loopColor,
-                            start = Offset(startPx, 0f),
-                            end = Offset(startPx, size.height),
-                            strokeWidth = markerWidth
-                        )
+                        drawLine(color = loopColor, start = Offset(startPx, 0f), end = Offset(startPx, size.height), strokeWidth = markerWidth)
                     }
-
-                    // Draw loop end marker
                     if (loopEnd != null) {
                         val endPx = (loopEnd / duration).coerceIn(0f, 1f) * size.width
-                        drawLine(
-                            color = loopColor,
-                            start = Offset(endPx, 0f),
-                            end = Offset(endPx, size.height),
-                            strokeWidth = markerWidth
-                        )
+                        drawLine(color = loopColor, start = Offset(endPx, 0f), end = Offset(endPx, size.height), strokeWidth = markerWidth)
                     }
-
-                    // Draw connected segment if both are set
                     if (loopStart != null && loopEnd != null) {
                         val minPx = (minOf(loopStart, loopEnd) / duration).coerceIn(0f, 1f) * size.width
                         val maxPx = (maxOf(loopStart, loopEnd) / duration).coerceIn(0f, 1f) * size.width
-                        
-                        // Draw a semi-transparent overlay between A and B
-                        drawRect(
-                            color = loopColor.copy(alpha = 0.3f),
-                            topLeft = Offset(minPx, 0f),
-                            size = Size(maxPx - minPx, size.height)
-                        )
+                        drawRect(color = loopColor.copy(alpha = 0.3f), topLeft = Offset(minPx, 0f), size = Size(maxPx - minPx, size.height))
                     }
                 }
             }
         },
-            thumb = {
-                Box(
-                    modifier = Modifier
-                        .width(thumbWidth)
-                        .height(thumbHeight)
-                        .background(primaryColor, thumbShape)
-                )
-            }
-        )
-    }
+        thumb = {
+            Box(
+                modifier = Modifier
+                    .width(thumbWidth)
+                    .height(thumbHeight)
+                    .background(primaryColor, thumbShape)
+            )
+        }
+    )
+}
 
 @Preview
 @Composable
 private fun PreviewSeekBar() {
-  SeekbarWithTimers(
-    position = 30f,
-    duration = 180f,
-    onValueChange = {},
-    onValueChangeFinished = {},
-    timersInverted = Pair(false, true),
-    positionTimerOnClick = {},
-    durationTimerOnCLick = {},
-    chapters = persistentListOf(),
-    paused = false,
-  )
+    SeekbarWithTimers(
+        position = 30f,
+        duration = 180f,
+        onValueChange = {},
+        onValueChangeFinished = {},
+        timersInverted = Pair(false, true),
+        positionTimerOnClick = {},
+        durationTimerOnCLick = {},
+        chapters = persistentListOf(),
+        paused = false,
+        readAheadValue = 90f,
+    )
+}
+
+@Composable
+fun SeekbarPreview(
+    style: SeekbarStyle,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "seekbar_preview")
+    val progress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "progress"
+    )
+    val duration = 100f
+    val position = progress * duration
+
+    val dummyChapters = persistentListOf(
+        Segment(name = "Chapter 1", start = 0f),
+        Segment(name = "Chapter 2", start = duration * 0.35f),
+        Segment(name = "Chapter 3", start = duration * 0.65f),
+    )
+
+    Box(
+        modifier = modifier.height(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        when (style) {
+            SeekbarStyle.Standard -> {
+                StandardSeekbar(
+                    position = position,
+                    duration = duration,
+                    readAheadValue = position,
+                    chapters = dummyChapters,
+                    isPaused = false,
+                    isScrubbing = false,
+                    seekbarStyle = SeekbarStyle.Standard,
+                    onSeek = {},
+                    onSeekFinished = {},
+                )
+            }
+            SeekbarStyle.Wavy -> {
+                SquigglySeekbar(
+                    position = position,
+                    duration = duration,
+                    readAheadValue = position,
+                    chapters = dummyChapters,
+                    isPaused = false,
+                    isScrubbing = false,
+                    useWavySeekbar = true,
+                    seekbarStyle = SeekbarStyle.Wavy,
+                    onSeek = {},
+                    onSeekFinished = {},
+                )
+            }
+            SeekbarStyle.Circular -> {
+                SquigglySeekbar(
+                    position = position,
+                    duration = duration,
+                    readAheadValue = position,
+                    chapters = dummyChapters,
+                    isPaused = false,
+                    isScrubbing = false,
+                    useWavySeekbar = true,
+                    seekbarStyle = SeekbarStyle.Circular,
+                    onSeek = {},
+                    onSeekFinished = {},
+                )
+            }
+            SeekbarStyle.Simple -> {
+                SquigglySeekbar(
+                    position = position,
+                    duration = duration,
+                    readAheadValue = position,
+                    chapters = dummyChapters,
+                    isPaused = false,
+                    isScrubbing = false,
+                    useWavySeekbar = false,
+                    seekbarStyle = SeekbarStyle.Simple,
+                    onSeek = {},
+                    onSeekFinished = {},
+                )
+            }
+            SeekbarStyle.Thick -> {
+                StandardSeekbar(
+                    position = position,
+                    duration = duration,
+                    readAheadValue = position,
+                    chapters = dummyChapters,
+                    isPaused = false,
+                    isScrubbing = false,
+                    seekbarStyle = SeekbarStyle.Thick,
+                    onSeek = {},
+                    onSeekFinished = {},
+                )
+            }
+        }
+
+        if (onClick != null) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onClick
+                    )
+            )
+        }
+    }
 }
