@@ -371,3 +371,4 @@ class TrackSelector(
       Log.e(TAG, "Subtitle selection failed", e)
     }
   }
+} 
