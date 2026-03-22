@@ -531,12 +531,24 @@ class PlayerActivity :
   }
 
   private fun setupAudio() {
-    audioPreferences.audioChannels.get().let {
-      runCatching {
-        MPVLib.setPropertyString(it.property, it.value)
-      }.onFailure { e ->
-        Log.e(TAG, "Error setting audio channels: ${it.property}=${it.value}", e)
+    // Check if external mpv.conf exists
+    val hasExternalConfig = runCatching {
+      val mpvConfFile = File(filesDir, "mpv.conf")
+      mpvConfFile.exists() && mpvConfFile.length() > 0
+    }.getOrDefault(false)
+
+    // Only apply mpvEx audio preferences if NO external config exists
+    if (!hasExternalConfig) {
+      audioPreferences.audioChannels.get().let {
+        runCatching {
+          MPVLib.setPropertyString(it.property, it.value)
+          Log.d(TAG, "Applied mpvEx audio channels: ${it.property}=${it.value}")
+        }.onFailure { e ->
+          Log.e(TAG, "Error setting audio channels: ${it.property}=${it.value}", e)
+        }
       }
+    } else {
+      Log.d(TAG, "Skipped mpvEx audio preferences (external config takes priority)")
     }
 
     if (!serviceBound) {
