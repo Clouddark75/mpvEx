@@ -886,24 +886,62 @@ class PlayerActivity :
 
   /**
    * Initializes the MPV player with the necessary paths and observers.
+   * IMPORTANT: Config files must be copied BEFORE MPV initialization so they are loaded correctly.
    */
   private fun setupMPV() {
-    // Copy essential files FIRST, before MPV initialization
+    // STEP 1: Copy essential MPV assets first
     runCatching {
       Utils.copyAssets(this@PlayerActivity)
-      syncFromUserMpvDirectory()
-      Log.d(TAG, "MPV config and scripts prepared successfully")
+      Log.d(TAG, "MPV assets copied successfully")
     }.onFailure { e ->
-      Log.e(TAG, "Error copying MPV config and scripts", e)
+      Log.e(TAG, "Error copying MPV assets", e)
     }
 
-    // NOW initialize MPV - it will find and load the scripts we just copied
+    // STEP 2: Sync user's MPV directory BEFORE initializing MPV
+    // This ensures mpv.conf is present when MPV starts
+    runCatching {
+      syncFromUserMpvDirectory()
+      Log.d(TAG, "User MPV directory synced successfully")
+    }.onFailure { e ->
+      Log.e(TAG, "Error syncing user MPV directory", e)
+    }
+
+    // STEP 3: Verify mpv.conf exists and log its content for debugging
+    runCatching {
+      val mpvConfFile = File(filesDir, "mpv.conf")
+      if (mpvConfFile.exists()) {
+        val content = mpvConfFile.readText()
+        Log.d(TAG, "mpv.conf found (${content.length} chars)")
+        Log.d(TAG, "mpv.conf first 500 chars: ${content.take(500)}")
+      } else {
+        Log.w(TAG, "mpv.conf not found - MPV will use default settings")
+      }
+    }.onFailure { e ->
+      Log.e(TAG, "Error checking mpv.conf", e)
+    }
+
+    // STEP 4: NOW initialize MPV - it will automatically load mpv.conf from filesDir
     player.initialize(filesDir.path, cacheDir.path)
     mpvInitialized = true
-    Log.d(TAG, "MPV initialized")
+    Log.d(TAG, "MPV initialized with config from: ${filesDir.path}")
 
-    // Add observer after initialization
+    // STEP 5: Add observer after initialization
     MPVLib.addObserver(playerObserver)
+
+    // STEP 6: Log what MPV actually loaded to verify config was applied
+    runCatching {
+      // Wait a bit for MPV to fully initialize and load config
+      Thread.sleep(100)
+
+      // Check some common settings to verify config was loaded
+      val hwdec = MPVLib.getPropertyString("hwdec")
+      val vo = MPVLib.getPropertyString("vo")
+      val profile = MPVLib.getPropertyString("profile")
+
+      Log.d(TAG, "MPV loaded settings - hwdec: $hwdec, vo: $vo, profile: $profile")
+    }.onFailure { e ->
+      Log.e(TAG, "Error verifying MPV config", e)
+    }
   }
 
   /**
@@ -936,40 +974,59 @@ class PlayerActivity :
     }
   }
 
-  // ==================== Config Files Sync ====================
-
   /**
    * Syncs mpv.conf and input.conf from the user's MPV directory.
+   * PRIORITY: External config files override preferences completely.
    * Also caches the content in preferences for the config editor.
    */
   private fun syncConfigFiles(folder: File) {
     for (configName in listOf("mpv.conf", "input.conf")) {
       runCatching {
         val configFile = findFileCaseInsensitive(folder, configName)
+
         if (configFile != null && configFile.exists() && configFile.isFile && configFile.canRead()) {
+          // PRIORITY PATH: External config file found - use it exclusively
           val content = configFile.readText()
-          File(filesDir, configName).writeText(content)
-          // Cache in preferences for the config editor
+          val targetFile = File(filesDir, configName)
+
+          // Write to MPV's config directory (this is what MPV will load)
+          targetFile.writeText(content)
+
+          // Also cache in preferences for the config editor
           when (configName) {
             "mpv.conf" -> advancedPreferences.mpvConf.set(content)
             "input.conf" -> advancedPreferences.inputConf.set(content)
           }
-          Log.d(TAG, "Synced config: $configName (${content.length} chars)")
+
+          Log.d(TAG, "✓ Synced external $configName (${content.length} chars) - PRIORITY")
+          Log.d(TAG, "  First line: ${content.lines().firstOrNull { it.isNotBlank() && !it.startsWith("#") } ?: "(empty)"}")
         } else {
-          // Config not in directory, fall back to preferences
+          // FALLBACK PATH: No external config - use preferences if available
           val prefContent = when (configName) {
             "mpv.conf" -> advancedPreferences.mpvConf.get()
             "input.conf" -> advancedPreferences.inputConf.get()
             else -> ""
           }
-          File(filesDir, configName).apply {
-            if (!exists()) createNewFile()
-            if (prefContent.isNotBlank()) writeText(prefContent)
+
+          val targetFile = File(filesDir, configName)
+
+          if (prefContent.isNotBlank()) {
+            // Use preferences content
+            if (!targetFile.exists()) targetFile.createNewFile()
+            targetFile.writeText(prefContent)
+            Log.d(TAG, "✓ Using cached $configName from preferences (${prefContent.length} chars)")
+          } else {
+            // Create empty config file so MPV doesn't error
+            if (!targetFile.exists()) {
+              targetFile.createNewFile()
+              Log.d(TAG, "✓ Created empty $configName (MPV will use defaults)")
+            } else {
+              Log.d(TAG, "✓ Existing $configName found, keeping it")
+            }
           }
-          Log.d(TAG, "Config not found in directory, used preferences: $configName")
         }
       }.onFailure { e ->
-        Log.e(TAG, "Error syncing config: $configName", e)
+        Log.e(TAG, "✗ Error syncing config: $configName", e)
       }
     }
   }
