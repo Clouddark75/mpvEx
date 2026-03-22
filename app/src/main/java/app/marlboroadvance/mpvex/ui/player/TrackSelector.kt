@@ -259,27 +259,61 @@ class TrackSelector(
         }
       }
 
-      // PASS A0: KEEP FILE'S NATIVE DEFAULT JAPANESE SUBS FOR ANIME
-      if (isAnimeContext) {
-        val defaultCount = subTracks.count { it.isDefault }
+      // PASS A0: NATIVE DEFAULT TRACK (Works for ALL content, not just anime)
+      // This fixes the bug where default tracks without language are ignored
+      val defaultTracks = subTracks.filter { it.isDefault }
 
-        if (defaultCount == 1) {
-          for (track in subTracks) {
-            if (track.isDefault) {
-              if (track.lang == "jpn" || track.lang == "ja" || track.lang == "jp") {
-                if (currentSid == track.id) {
-                  Log.d(TAG, "Smart Sub: Native File Default Japanese Sub (id=${track.id}) [Already Active. Skipping Change.]")
-                } else {
-                  Log.d(TAG, "Smart Sub: Native File Default Japanese Sub (id=${track.id}) [Applied]")
-                  MPVLib.setPropertyInt("sid", track.id)
-                }
-                return
+      if (defaultTracks.size == 1) {
+        val track = defaultTracks.first()
+
+        // For anime: prioritize Japanese default
+        if (isAnimeContext && (track.lang == "jpn" || track.lang == "ja" || track.lang == "jp")) {
+          if (currentSid == track.id) {
+            Log.d(TAG, "Smart Sub: Native File Default Japanese Sub (id=${track.id}) [Already Active. Skipping Change.]")
+          } else {
+            Log.d(TAG, "Smart Sub: Native File Default Japanese Sub (id=${track.id}) [Applied]")
+            MPVLib.setPropertyInt("sid", track.id)
+          }
+          return
+        }
+
+        // For all content: if default track has no language or matches preferred, use it
+        if (track.lang.isEmpty() || preferredLangs.any { track.lang == it || track.lang.startsWith(it) }) {
+          if (currentSid == track.id) {
+            Log.d(TAG, "Smart Sub: Native File Default Track (lang='${track.lang}', id=${track.id}) [Already Active. Skipping Change.]")
+          } else {
+            Log.d(TAG, "Smart Sub: Native File Default Track (lang='${track.lang}', id=${track.id}) [Applied]")
+            MPVLib.setPropertyInt("sid", track.id)
+          }
+          return
+        }
+      } else if (defaultTracks.size > 1) {
+        Log.d(TAG, "Smart Sub: Multiple default tracks detected (${defaultTracks.size}). Checking language preferences...")
+
+        // If multiple defaults, try to find one matching preferred language
+        for (prefLang in preferredLangs) {
+          for (track in defaultTracks) {
+            if (track.lang.isEmpty() || track.lang == prefLang || track.lang.startsWith(prefLang)) {
+              if (currentSid == track.id) {
+                Log.d(TAG, "Smart Sub: Default Track with Preferred Language (lang='${track.lang}', id=${track.id}) [Already Active. Skipping Change.]")
+              } else {
+                Log.d(TAG, "Smart Sub: Default Track with Preferred Language (lang='${track.lang}', id=${track.id}) [Applied]")
+                MPVLib.setPropertyInt("sid", track.id)
               }
+              return
             }
           }
-        } else if (defaultCount > 1) {
-          Log.d(TAG, "Smart Sub: Multiple default tracks detected (Muxing error). Ignoring.")
         }
+
+        // If no language match, use first default track
+        val firstDefault = defaultTracks.first()
+        if (currentSid == firstDefault.id) {
+          Log.d(TAG, "Smart Sub: First Default Track (id=${firstDefault.id}) [Already Active. Skipping Change.]")
+        } else {
+          Log.d(TAG, "Smart Sub: First Default Track (id=${firstDefault.id}) [Applied]")
+          MPVLib.setPropertyInt("sid", firstDefault.id)
+        }
+        return
       }
 
       // PASS A: SMART ANIME DIALOGUE
@@ -317,7 +351,7 @@ class TrackSelector(
           }
         }
       }
-      
+
       // PASS C: LAST RESORT MATCHING
       for (prefLang in preferredLangs) {
         for (track in subTracks) {
@@ -337,4 +371,3 @@ class TrackSelector(
       Log.e(TAG, "Subtitle selection failed", e)
     }
   }
-}
