@@ -185,6 +185,10 @@ class PlayerActivity :
 
   // ==================== Views ====================
 
+  // Agrega esta propiedad junto a las demás variables de estado
+  private var lastBackPressTime = 0L
+  private val BACK_DOUBLE_PRESS_INTERVAL = 2000L // 2 segundos
+
   /**
    * The MPV player view.
    */
@@ -484,43 +488,51 @@ class PlayerActivity :
 
   @RequiresApi(Build.VERSION_CODES.P)
   private fun handleBackPress() {
-    // Dismiss overlays first
-    if (viewModel.sheetShown.value != Sheets.None) {
-      viewModel.sheetShown.update { Sheets.None }
-      viewModel.showControls()
-      return
-    }
-
-    if (viewModel.panelShown.value != Panels.None) {
-      viewModel.panelShown.update { Panels.None }
-      viewModel.showControls()
-      return
-    }
-
-    // Check if auto PIP is enabled - enter PIP mode instead of finishing
-    if (playerPreferences.autoPiPOnNavigation.get() && isReady) {
-      pipHelper.enterPipMode()
-      return
-    }
-
-    isUserFinishing = true
-    finish()
-  }
-
-  @RequiresApi(Build.VERSION_CODES.P)
-  private fun setupPlayerControls() {
-    binding.controls.setContent {
-      MpvexTheme {
-        PlayerControls(
-          viewModel = viewModel,
-          onBackPress = {
-            isUserFinishing = true
-            finish()
-          },
-          modifier = Modifier,
-        )
+      // Dismiss overlays first (comportamiento existente)
+      if (viewModel.sheetShown.value != Sheets.None) {
+          viewModel.sheetShown.update { Sheets.None }
+          viewModel.showControls()
+          return
       }
-    }
+
+      if (viewModel.panelShown.value != Panels.None) {
+          viewModel.panelShown.update { Panels.None }
+          viewModel.showControls()
+          return
+      }
+
+      // Check if auto PIP is enabled - enter PIP mode instead of finishing
+      if (playerPreferences.autoPiPOnNavigation.get() && isReady) {
+          pipHelper.enterPipMode()
+          return
+      }
+
+      val now = System.currentTimeMillis()
+
+      if (!viewModel.controlsShown.value) {
+          // Controles ocultos: primer press muestra controles
+          // Si el segundo press llega dentro del intervalo, cerrar
+          if (now - lastBackPressTime < BACK_DOUBLE_PRESS_INTERVAL) {
+              // Doble press: cerrar
+              isUserFinishing = true
+              finish()
+          } else {
+              // Primer press: mostrar controles y registrar tiempo
+              lastBackPressTime = now
+              viewModel.showControls()
+          }
+      } else {
+          // Controles ya visibles: primer press dentro del intervalo cierra,
+          // si no, simplemente resetea el timer (los controles ya están visibles)
+          if (now - lastBackPressTime < BACK_DOUBLE_PRESS_INTERVAL) {
+              isUserFinishing = true
+              finish()
+          } else {
+              lastBackPressTime = now
+              // Controles ya visibles, no hacer nada extra — el timer queda listo
+              // para que el segundo press cierre
+          }
+      }
   }
 
   /**
