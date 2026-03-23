@@ -497,6 +497,11 @@ class PlayerActivity :
       return
     }
 
+    if (!viewModel.controlsShown.value) {
+      viewModel.showControls()
+      return
+    }
+
     // Check if auto PIP is enabled - enter PIP mode instead of finishing
     if (playerPreferences.autoPiPOnNavigation.get() && isReady) {
       pipHelper.enterPipMode()
@@ -2634,11 +2639,15 @@ class PlayerActivity :
       }
 
       KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-          if (isTrackSheetOpen) {
-              return super.onKeyDown(keyCode, event)
-          }
+        if (isTrackSheetOpen) {
+          return super.onKeyDown(keyCode, event)
+        }
+        // Center/Enter para play/pause
+        if (isNoSheetOpen) {
           viewModel.pauseUnpause()
           return true
+        }
+        return super.onKeyDown(keyCode, event)
       }
 
       KeyEvent.KEYCODE_SPACE -> {
