@@ -2687,14 +2687,15 @@ class PlayerActivity :
    * @param event The key event
    * @return true if event was handled, false otherwise
    */
-  override fun onKeyUp(
-    keyCode: Int,
-    event: KeyEvent?,
-  ): Boolean {
-    event?.let {
-      if (player.onKey(it)) return true
-    }
-    return super.onKeyUp(keyCode, event)
+  override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+      // No pasar DPAD_CENTER/ENTER a MPV para evitar doble acción
+      if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER) {
+          return true
+      }
+      event?.let {
+          if (player.onKey(it)) return true
+      }
+      return super.onKeyUp(keyCode, event)
   }
 
   // ==================== System UI Management ====================
@@ -3059,8 +3060,13 @@ class PlayerActivity :
       val chapters = viewModel.chapters.value
       if (chapters.isEmpty()) return false
       val currentPos = (viewModel.pos ?: 0).toDouble()
-      val next = chapters.firstOrNull { it.start > currentPos + 0.5 } ?: return false
+      val nextIndex = chapters.indexOfFirst { it.start > currentPos + 0.5 }
+      if (nextIndex == -1) return false
+      val next = chapters[nextIndex]
       viewModel.seekTo(next.start.toInt())
+      // Mostrar nombre del capítulo (Segment usa 'name' como label)
+      val chapterName = next.name.ifBlank { "Chapter ${nextIndex + 1}" }
+      viewModel.playerUpdate.value = PlayerUpdates.ShowText("▶ $chapterName")
       return true
   }
 
@@ -3071,9 +3077,12 @@ class PlayerActivity :
       val chapters = viewModel.chapters.value
       if (chapters.isEmpty()) return false
       val currentPos = (viewModel.pos ?: 0).toDouble()
-      // Si estamos a más de 3s dentro del capítulo actual, volvemos al inicio del mismo
-      val prev = chapters.lastOrNull { it.start < currentPos - 3.0 } ?: return false
+      val prevIndex = chapters.indexOfLast { it.start < currentPos - 3.0 }
+      if (prevIndex == -1) return false
+      val prev = chapters[prevIndex]
       viewModel.seekTo(prev.start.toInt())
+      val chapterName = prev.name.ifBlank { "Chapter ${prevIndex + 1}" }
+      viewModel.playerUpdate.value = PlayerUpdates.ShowText("◀ $chapterName")
       return true
   }
   
