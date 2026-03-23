@@ -185,10 +185,6 @@ class PlayerActivity :
 
   // ==================== Views ====================
 
-  // Agrega esta propiedad junto a las demás variables de estado
-  private var lastBackPressTime = 0L
-  private val BACK_DOUBLE_PRESS_INTERVAL = 2000L // 2 segundos
-
   /**
    * The MPV player view.
    */
@@ -250,6 +246,10 @@ class PlayerActivity :
    * Used to skip thumbnail/metadata extraction for network streams.
    */
   private var isM3uPlaylist: Boolean = false
+
+  // Agrega esta propiedad junto a las demás variables de estado
+  private var lastBackPressTime = 0L
+  private val BACK_DOUBLE_PRESS_INTERVAL = 2000L // 2 segundos
 
   /**
    * Helper for managing Picture-in-Picture mode.
