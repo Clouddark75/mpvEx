@@ -2672,6 +2672,21 @@ class PlayerActivity :
         return true
       }
 
+      KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+        viewModel.pauseUnpause()
+        return true
+      }
+
+      KeyEvent.KEYCODE_MEDIA_PLAY -> {
+        viewModel.unpause()
+        return true
+      }
+
+      KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+        viewModel.pause()
+        return true
+      }
+
       KeyEvent.KEYCODE_MEDIA_REWIND -> {
         viewModel.handleLeftDoubleTap()
         return true
