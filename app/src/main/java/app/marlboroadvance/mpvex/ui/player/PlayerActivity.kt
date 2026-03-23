@@ -375,7 +375,6 @@ class PlayerActivity :
     MediaPlaybackService.createNotificationChannel(this)
     setupAudio()
     setupBackPressHandler()
-    setupPlayerControls()
     setupPipHelper()
     setupMediaSession()
 
