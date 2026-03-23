@@ -2595,10 +2595,21 @@ class PlayerActivity :
 
     when (keyCode) {
       KeyEvent.KEYCODE_DPAD_UP -> {
-        return super.onKeyDown(keyCode, event)
+          // Navega al siguiente capítulo, o salta +30s si no hay capítulos
+          if (!seekToNextChapter()) {
+              viewModel.seekBy(30)
+          }
+          return true
       }
 
-      KeyEvent.KEYCODE_DPAD_DOWN,
+      KeyEvent.KEYCODE_DPAD_DOWN -> {
+          // Navega al capítulo anterior, o salta -30s si no hay capítulos
+          if (!seekToPreviousChapter()) {
+              viewModel.seekBy(-30)
+          }
+          return true
+      }
+
       KeyEvent.KEYCODE_DPAD_RIGHT,
       KeyEvent.KEYCODE_DPAD_LEFT,
         -> {
@@ -2623,10 +2634,11 @@ class PlayerActivity :
       }
 
       KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-        if (isTrackSheetOpen) {
-          return super.onKeyDown(keyCode, event)
-        }
-        return super.onKeyDown(keyCode, event)
+          if (isTrackSheetOpen) {
+              return super.onKeyDown(keyCode, event)
+          }
+          viewModel.pauseUnpause()
+          return true
       }
 
       KeyEvent.KEYCODE_SPACE -> {
@@ -3040,6 +3052,31 @@ class PlayerActivity :
     }
   }
 
+  /**
+   * Navega al siguiente capítulo. Retorna true si había capítulo disponible.
+   */
+  private fun seekToNextChapter(): Boolean {
+      val chapters = viewModel.chapters.value
+      if (chapters.isEmpty()) return false
+      val currentPos = (viewModel.pos ?: 0).toDouble()
+      val next = chapters.firstOrNull { it.start > currentPos + 0.5 } ?: return false
+      viewModel.seekTo(next.start.toInt())
+      return true
+  }
+
+  /**
+   * Navega al capítulo anterior. Retorna true si había capítulo disponible.
+   */
+  private fun seekToPreviousChapter(): Boolean {
+      val chapters = viewModel.chapters.value
+      if (chapters.isEmpty()) return false
+      val currentPos = (viewModel.pos ?: 0).toDouble()
+      // Si estamos a más de 3s dentro del capítulo actual, volvemos al inicio del mismo
+      val prev = chapters.lastOrNull { it.start < currentPos - 3.0 } ?: return false
+      viewModel.seekTo(prev.start.toInt())
+      return true
+  }
+  
   /**
    * Play the previous video in the playlist
    */
